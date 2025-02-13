@@ -29,7 +29,7 @@ import (
 
 	//moduleregistry "config_service/pkg/module-registry"
 
-	moduleregistry "config-service/pkg/module-registry"
+	moduleregistry "mygit.th-deg.de/msaracevic/opencnc_config-service/pkg/module-registry"
 
 	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
 )
