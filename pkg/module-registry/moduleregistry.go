@@ -1,7 +1,7 @@
 package moduleregistry
 
 import (
-	sw "config_service/pkg/store-wrapper"
+	sw "config-service/pkg/store-wrapper"
 	"fmt"
 	"log"
 	"os"

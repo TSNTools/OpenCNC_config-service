@@ -1,8 +1,8 @@
 package addswitch
 
 import (
-	moduleregistry "config_service/pkg/module-registry"
-	sw "config_service/pkg/store-wrapper"
+	moduleregistry "config-service/pkg/module-registry"
+	sw "config-service/pkg/store-wrapper"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,7 +10,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -19,7 +18,7 @@ import (
 func GetModulesNames() {
 	//getAllKeysInStore(client, "yang-modules")
 
-	client, err := sw.GetEtcdClient()
+	client, err := sw.CreateEtcdClient()
 	if err != nil {
 		log.Fatal("Failed to create etcd client:", err)
 	}
@@ -112,25 +111,4 @@ func MapConfigStructures(mr *moduleregistry.ModuleRegistry) {
 			fmt.Println("No match found!")
 		}
 	}
-}
-
-func GetEtcdMap(client *clientv3.Client, mapName string) (map[string]string, error) {
-	// The map is stored as a set of key-value pairs in etcd, identified by the map name
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Get all the key-value pairs associated with the mapName prefix
-	resp, err := client.Get(ctx, mapName, clientv3.WithPrefix())
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert the result into a map[string]string
-	result := make(map[string]string)
-	for _, kv := range resp.Kvs {
-		// Store each key-value pair into the result map (removing the mapName prefix from the key)
-		result[string(kv.Key[len(mapName):])] = string(kv.Value)
-	}
-
-	return result, nil
 }
