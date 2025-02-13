@@ -15,12 +15,7 @@ func TreeParser(filePath string) {
 	fileName := strings.TrimSuffix(path.Base(filePath), path.Ext(filePath))
 
 	// Define the desired directory where the output file will be created
-	outputDir := "." //"pkg/yang_modules/trees"
-
-	// Check if the directory exists, and create it if it doesn't
-	if err := checkAndCreateDirectory(outputDir); err != nil {
-		log.Fatalf("Failed to check or create directory: %v", err)
-	}
+	outputDir := "pkg/yang_modules/trees"
 
 	// Load the YANG modules
 	modules := yang.NewModules()
@@ -90,16 +85,4 @@ func getTypeY(entry *yang.Entry) string {
 	}
 	// Return the name of the type
 	return entry.Type.Name
-}
-
-// Function to check if the directory exists, and create it if it doesn't
-func checkAndCreateDirectory(dirPath string) error {
-	// Check if the directory exists
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		// If the directory does not exist, create it
-		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-			return fmt.Errorf("failed to create directory: %v", err)
-		}
-	}
-	return nil
 }

@@ -1,17 +1,12 @@
-package main
+package moduleregistry
 
 import (
-	//"bufio"
-
-	"context"
+	sw "config_service/pkg/store-wrapper"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
-
-	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 type FileInfo struct {
@@ -19,9 +14,59 @@ type FileInfo struct {
 	FileName  string
 }
 
-func ModuleRegistry() {
+// ModuleRegistry represents an in-memory data structure: a map of maps.
+type ModuleRegistry struct {
+	Modules map[string]map[string]string
+}
+
+// NewModuleRegistry creates and returns a new instance of ModuleRegistry
+func NewModuleRegistry() *ModuleRegistry {
+	// Create the initial instance of ModuleRegistry
+	mr := &ModuleRegistry{
+		Modules: make(map[string]map[string]string),
+	}
+
+	// Call a function to populate the struct (e.g., initialize items)
+	mr.createModuleRegistry()
+
+	// Return the populated struct
+	return mr
+}
+
+// UpdateModuleRegistry updates the current registry
+func (mr *ModuleRegistry) UpdateModuleRegistry(outerKey, innerKey, innerValue string) {
+	// Check if the outerKey exists, if not, create a new inner map
+	if _, exists := mr.Modules[outerKey]; !exists {
+		mr.Modules[outerKey] = make(map[string]string)
+	}
+
+	// Update the inner map with the new key-value pair
+	mr.Modules[outerKey][innerKey] = innerValue
+	//fmt.Printf("Registry updated: Outer Key = %s, Inner Key = %s, Value = %s\n", outerKey, innerKey, innerValue)
+}
+
+// Get retrieves the value for a given inner key under the specified outer key
+func (mr *ModuleRegistry) Get(outerKey, innerKey string) string {
+	if outerMap, exists := mr.Modules[outerKey]; exists {
+		return outerMap[innerKey]
+	}
+	return ""
+}
+
+// PrintRegistry prints the entire registry (for debugging or visualization purposes)
+func (mr *ModuleRegistry) PrintModuleRegistry() {
+	fmt.Println("Current Module Registry:")
+	for outerKey, innerMap := range mr.Modules {
+		fmt.Printf("Outer Key: %s\n", outerKey)
+		for innerKey, value := range innerMap {
+			fmt.Printf("  Inner Key: %s, Value: %s\n", innerKey, value)
+		}
+	}
+}
+
+func (mr *ModuleRegistry) createModuleRegistry() {
 	// Replace with the path to your directory
-	dirPath := "../pkg/yang_modules"
+	dirPath := "pkg/yang_modules/gen_structures"
 
 	// Read file names from the directory
 	files, err := getFilesWithSubdirectories(dirPath)
@@ -30,12 +75,8 @@ func ModuleRegistry() {
 		return
 	}
 
-	// Set up the etcd client configuration
-	client, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{"http://127.0.0.1:2379"},
-		DialTimeout: 5 * time.Second,
-	})
-
+	// Call CreateEtcdClient and handle error
+	client, err := sw.CreateEtcdClient()
 	if err != nil {
 		log.Fatal("Failed to create etcd client:", err)
 	}
@@ -46,22 +87,18 @@ func ModuleRegistry() {
 	//counter := 1
 	for _, file := range files {
 		parts := strings.Split(file.FileName, "@")
-		//prefix := prefix1 + strconv.Itoa(counter)
 		prefix := prefix0 + parts[0]
 
-		//fmt.Println(prefix + "/name" + ": " + parts[0])
-		//setKey(client, prefix+"/name", parts[0])
 		if len(parts) == 2 {
-			//fmt.Println(prefix + "/revision" + ": " + parts[1])
-			setKey(client, prefix+"/revision", parts[1])
+			sw.SetKey(client, prefix+"/revision", parts[1])
+			mr.UpdateModuleRegistry(parts[0], "revision", parts[1])
 
 		} else {
-			//fmt.Println(prefix + "/revision: No revision tag.")
-			setKey(client, prefix+"/revision", "No Revision tag found.")
+			sw.SetKey(client, prefix+"/revision", "No Revision tag found.")
+			mr.UpdateModuleRegistry(parts[0], "revision", "No Revision tag found.")
 		}
-		//fmt.Println(prefix + "/structure" + ": " + file.Directory)
-		setKey(client, prefix+"/structure", file.Directory)
-		//counter++
+		sw.SetKey(client, prefix+"/structure", file.Directory)
+		mr.UpdateModuleRegistry(parts[0], "structure", file.Directory)
 	}
 }
 
@@ -98,35 +135,4 @@ func getFilesWithSubdirectories(dirPath string) ([]FileInfo, error) {
 	}
 
 	return filesInfo, nil
-}
-
-// getUserInput reads a string input from the user and returns it
-/*func getUserInput(prompt string) string {
-	// Create a new reader for user input
-	reader := bufio.NewReader(os.Stdin)
-
-	// Display the prompt
-	fmt.Print(prompt)
-
-	// Read the user input until a newline character
-	userInput, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Println("Error reading input:", err)
-		return ""
-	}
-
-	// Trim any extra whitespace or newline characters
-	return strings.TrimSpace(userInput)
-}*/
-
-// setKey is a helper function to set a key-value pair with a prefix (store).
-func setKey(client *clientv3.Client, key, value string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := client.Put(ctx, key, value)
-	if err != nil {
-		//log.Printf("Failed to put key %s: %v", key, err)
-	} else {
-		//fmt.Printf("Set key %s with value %s\n", key, value)
-	}
 }
