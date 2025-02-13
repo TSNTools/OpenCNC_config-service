@@ -1,8 +1,6 @@
 package addswitch
 
 import (
-	moduleregistry "config-service/pkg/module-registry"
-	sw "config-service/pkg/store-wrapper"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +8,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	sw "mygit.th-deg.de/msaracevic/opencnc_config-service/pkg/store-wrapper"
+
+	moduleregistry "mygit.th-deg.de/msaracevic/opencnc_config-service/pkg/module-registry"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )

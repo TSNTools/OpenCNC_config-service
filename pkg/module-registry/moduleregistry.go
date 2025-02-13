@@ -1,12 +1,13 @@
 package moduleregistry
 
 import (
-	sw "config-service/pkg/store-wrapper"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	sw "mygit.th-deg.de/msaracevic/opencnc_config-service/pkg/store-wrapper"
 )
 
 type FileInfo struct {
