@@ -1,4 +1,4 @@
-module config_service
+module config-service
 
 go 1.22.2
 
