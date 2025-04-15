@@ -1,4 +1,4 @@
-module mygit.th-deg.de/msaracevic/opencnc_config-service
+module config-service
 
 go 1.22.2
 
