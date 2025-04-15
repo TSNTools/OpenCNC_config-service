@@ -1,35 +1,9 @@
-// SPDX-FileCopyrightText: 2020-present Open Networking Foundation <info@opennetworking.org>
-//
-// SPDX-License-Identifier: Apache-2.0
-
-/*
-Package onos-config is the main entry point to the ONOS configuration subsystem.
-
-It connects to devices through a Southbound gNMI interface and
-gives a gNMI interface northbound for other systems to connect to, and an
-Admin service through gRPC
-
-Arguments
--allowUnvalidatedConfig <allow configuration for devices without a corresponding model plugin>
-
--modelPlugin (repeated) <the location of a shared object library that implements the Model Plugin interface>
-
--caPath <the location of a CA certificate>
-
--keyPath <the location of a client private key>
-
--certPath <the location of a client certificate>
-
-See ../../docs/run.md for how to run the application.
-*/
 package main
 
 import (
 	//trees "config_service/pkg/yang_modules/trees"
 
-	//moduleregistry "config_service/pkg/module-registry"
-
-	moduleregistry "mygit.th-deg.de/msaracevic/opencnc_config-service/pkg/module-registry"
+	storewrapper "config-service/pkg/store-wrapper"
 
 	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
 )
@@ -43,17 +17,17 @@ func main() {
 	// Example usage: Pass the file path to Parse
 	//trees.TreeParser("pkg/yang_modules/yang/ieee802-dot1ab-lldp.yang")
 
-	mr := moduleregistry.NewModuleRegistry()
+	moduleregistry, _ := storewrapper.GetModuleRegistry()
 
-	mr.PrintModuleRegistry()
+	moduleregistry.PrintModuleRegistry()
 
-	//addswitch.MapConfigStructures(mr)
+	devicemodelregistry, _ := storewrapper.GetDeviceModelRegistry()
 
-	// Now create your ModuleRegistry that uses the etcd client
-	//mr := moduleregistry.NewModuleRegistry()
+	devicemodelregistry.Print()
 
-	// Now you can use mr and the etcd client
-	//fmt.Println("ModuleRegistry initialized with etcd client:", mr)
+	topology, _ := storewrapper.GetTopology()
+
+	topology.Print()
 }
 
 /*

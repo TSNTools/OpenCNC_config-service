@@ -1,3 +1,5 @@
+package storewrapper
+
 /*
 Running etcd in the Background
 If you want to run etcd in the background as a service, you can add the & at the end of the command:
@@ -16,92 +18,91 @@ To read using etcdctl:
 
 */
 
-package storewrapper
-
 import (
-	"context"
-	"fmt"
-	"log"
-	"time"
+	devicemodelregistry "config-service/pkg/structures/device-model-registry"
+	moduleregistry "config-service/pkg/structures/module-registry"
+	"config-service/pkg/structures/topology"
 
 	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/proto"
 )
 
-// CreateEtcdClient creates and returns an etcd client
-func CreateEtcdClient() (*clientv3.Client, error) {
-	// Initialize the etcd client with provided configuration
-	client, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{"http://127.0.0.1:2379"}, // List of etcd endpoints
-		DialTimeout: 10 * time.Second,                  // Timeout for the dial
-	})
+var log = logger.GetLogger()
 
+// Changed from model plugin to device model registry
+func GetDeviceModelRegistry() (*devicemodelregistry.DeviceModelRegistry, error) {
+
+	// Build the prefix for the request data
+	prefix := "device-models."
+
+	rawData, err := getFromStoreWithPrefix(prefix)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create etcd client: %v", err)
+		log.Errorf("Failed getting device model from store: %v", err)
+		return &devicemodelregistry.DeviceModelRegistry{}, err
 	}
 
-	// Return the created etcd client
-	return client, nil
+	var dregistry = &devicemodelregistry.DeviceModelRegistry{}
+
+	for _, model := range rawData.Kvs {
+		var dmodel = &devicemodelregistry.DeviceModel{}
+		if err = proto.Unmarshal([]byte(model.Value), dmodel); err != nil {
+			log.Errorf("Failed unmarshaling device model: %v", err)
+			return &devicemodelregistry.DeviceModelRegistry{}, err
+		}
+		dregistry.DeviceModels = append(dregistry.DeviceModels, dmodel)
+	}
+
+	return dregistry, nil
 }
 
-// setKey is a helper function to set a key-value pair with a prefix (store).
-func SetKey(client *clientv3.Client, key, value string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := client.Put(ctx, key, value)
+func GetDeviceModel(name string) (*devicemodelregistry.DeviceModel, error) {
+	// Build the URN for the request data
+	urn := "device-models." + name
+
+	// Send request to specific path in k/v store "device-models"
+	rawData, err := getFromStore(urn)
 	if err != nil {
-		log.Printf("Failed to put key %s: %v", key, err)
-	} else {
-		//fmt.Printf("Set key %s with value %s\n", key, value)
+		log.Errorf("Failed getting request data from store: %v", err)
+		return &devicemodelregistry.DeviceModel{}, err
 	}
+
+	var model = &devicemodelregistry.DeviceModel{}
+	if err = proto.Unmarshal(rawData, model); err != nil {
+		log.Errorf("Failed unmarshaling schedule: %v", err)
+		return &devicemodelregistry.DeviceModel{}, err
+	}
+	return model, nil
 }
 
-// GetKey is a helper function to get the value for a key from a store.
-func GetKey(client *clientv3.Client, key string) (string, error) {
-	var log = logger.GetLogger()
+func GetTopology() (*topology.Topology, error) {
+	var topo = &topology.Topology{}
 
-	// Create a context with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	endnodes := getNodes("endnodes")
+	bridges := getNodes("bridges")
 
-	// Get the key-value pair from the etcd store
-	resp, err := client.Get(ctx, key)
-	if err != nil {
-		// Log the error if the key retrieval fails
-		log.Infof("Failed to get key %s: %v", key, err)
-		return "", err
-	}
+	topo.Nodes = append(endnodes, bridges...)
 
-	// Check if the key exists in the response
-	if len(resp.Kvs) == 0 {
-		// If no key is found, return an empty string and an error
-		return "", fmt.Errorf("key %s not found", key)
-	}
+	links := getLinks("links")
 
-	// Return the value of the first key found in the response
-	return string(resp.Kvs[0].Value), nil
+	topo.Links = append(topo.Links, links...)
+
+	return topo, nil
 }
 
-// getAllKeysInStore is a helper function to retrieve all keys in a specific store prefix.
-func GetAllKeysInStore(client *clientv3.Client, prefix string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	resp, err := client.Get(ctx, prefix, clientv3.WithPrefix())
+func GetModuleRegistry() (*moduleregistry.ModuleRegistry, error) {
+	// Build the URN for the request data
+	urn := "yang-modules."
 
+	rawData, err := getFromStore(urn)
 	if err != nil {
-		log.Printf("Failed to get keys with prefix %s: %v", prefix, err)
-		return
-	}
-	fmt.Printf("\nKeys in store with prefix %s:\n", prefix)
-
-	if len(resp.Kvs) == 0 {
-		log.Printf("No keys found with prefix %s", prefix)
-		return
+		log.Errorf("Failed getting request data from store: %v", err)
+		return &moduleregistry.ModuleRegistry{}, err
 	}
 
-	for _, kv := range resp.Kvs {
-		fmt.Printf("Key: %s, Value: %s\n", kv.Key, kv.Value)
-
+	var mregistry = &moduleregistry.ModuleRegistry{}
+	if err = proto.Unmarshal(rawData, mregistry); err != nil {
+		log.Errorf("Failed unmarshaling schedule: %v", err)
+		return &moduleregistry.ModuleRegistry{}, err
 	}
-	fmt.Println()
+	return mregistry, nil
 }

@@ -1,0 +1,89 @@
+//protoc --go_out=. --go_opt=paths=source_relative ./pkg/structures/topology/topology.proto
+syntax = "proto3";
+
+package topology;
+
+option go_package = "/topology";
+
+message Topology {
+    repeated Node Nodes = 1 [json_name="nodes"];
+    repeated Link links = 2 [json_name="links"];
+    int32 index = 3 [json_name="index"];
+}
+
+message Node {
+    string Type = 1 [json_name="type"];
+    string Name = 2 [json_name="name"];
+    repeated Port Ports = 3 [json_name="ports"];
+    Bridge Bridge = 4 [json_name="bridge"];
+    EndNode EndNode = 5 [json_name="endnode"];
+}
+
+message EndNode {
+    string Id = 1;
+}
+message Bridge{
+    string Id = 1;
+    InventoryInfo InventoryInfo = 2;
+    Status Status = 3;
+    repeated string SupportedProtocols = 4;
+    repeated string Capabilities = 5;
+    repeated Port AvailiablePorts = 6;
+    ManagementInfo ManagementInfo = 7;
+    string DeviceModel = 8; 
+    int32 ProcessingDelay = 9 [json_name="procDelay"];
+}
+
+enum Status {
+    ACTIVE = 0;
+    IDLE = 1;
+    LOST = 2;
+}
+
+message ManagementInfo{
+    // Type will most likely change
+    repeated string KeyCertificates = 1;
+    string IpAddress = 2;
+    string UserName = 3;
+    // Type will most likely change
+    string ManageVlan = 4;
+}
+
+message InventoryInfo{
+    string SoftwareVersion = 1;
+    //TODO: add more
+}
+
+message Port{
+    string Id = 1 [json_name="id"];
+    string Name = 2 [json_name="name"];
+    int32 PortSpeed = 3 [json_name="portSpeed"];
+    Model Model = 4;
+    string MacAddress = 5;
+    string IpAddress = 6;
+    int32 NumberOfQueues = 7 [json_name="numberOfQueues"];
+    int32 MaximumTransmissionUnit = 8;
+    map<string,int32> TrafficClassMTUs = 9;
+    map<string,int32> TrafficClassQueues = 10;
+    repeated string PortCapabilities = 11;
+}
+
+enum Model {
+    HD = 0;
+    FD = 1;
+}
+
+message Link{
+    string Id = 1 [json_name="id"];
+    string Source = 2 [json_name="source"];
+    string Target = 3 [json_name="target"];
+    int64 PropogationDelay = 4 [json_name="propogationDelay"];
+    int64 Bandwidth = 5 [json_name="bandwidth"];
+    repeated Port EndPorts = 6 [json_name="endPorts"];
+    LinkState LinkState = 7 [json_name="state"];
+}
+
+enum LinkState {
+    UP = 0;
+    DOWN = 1;
+}
