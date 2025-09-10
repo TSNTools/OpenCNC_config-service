@@ -1,0 +1,23 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+bin/
+build/
+
+# Go modules
+vendor/
+
+# IDE/editor files
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
