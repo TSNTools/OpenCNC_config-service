@@ -1,66 +1,45 @@
 package main
 
 import (
-	//trees "config_service/pkg/yang_modules/trees"
+	"log"
 
-	storewrapper "config-service/pkg/store-wrapper"
-
-	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
+	"engine"
+	"plugins/netconf"
+	"protocolbackends"
+	"structures"
+	"structures/topology_config"
 )
 
-var log = logger.GetLogger()
-
-// The main entry point
 func main() {
-	log.Infof("Starting config service")
+	logger := log.Default()
+	initBackends(logger)
 
-	// Example usage: Pass the file path to Parse
-	//trees.TreeParser("pkg/yang_modules/yang/ieee802-dot1ab-lldp.yang")
+	var config *topology_config.TopologyConfig
+	// TODO: Load config externally
 
-	moduleregistry, _ := storewrapper.GetModuleRegistry()
+	if config == nil {
+		logger.Fatal("TopologyConfig is nil — did you forget to load it?")
+	}
 
-	moduleregistry.PrintModuleRegistry()
+	mappingEngine := engine.NewMappingEngine(logger)
 
-	devicemodelregistry, _ := storewrapper.GetDeviceModelRegistry()
+	err := mappingEngine.ApplyTopologyConfig(config)
+	if err != nil {
+		logger.Fatalf("❌ Failed to apply configuration: %v", err)
+	}
 
-	devicemodelregistry.Print()
-
-	topology, _ := storewrapper.GetTopology()
-
-	topology.Print()
+	logger.Println("✅ Mapping complete.")
 }
 
-/*
-	// Path to the YANG model files
-	yangModelPath := "./path/to/yang/models"
-	// Output directory for the generated Go code
-	outputDir := "./generated_code"
+// ---------------------------------------------------
+// Backend initialization
+// ---------------------------------------------------
 
-	// Specify the input YANG files and the output Go file
-	files := []string{
-		// Replace these with your actual YANG model file paths
-		"model.yang",
-	}
+func initBackends(logger *log.Logger) {
+	netconfBackend := protocolbackends.NewNetconfBackend()
+	netconfBackend.AddPlugin(netconf.NewQbvNetconfPlugin(logger))
 
-	// Run the YANG-to-Go code generator
-	if err := runYANGGenerator(yangModelPath, files, outputDir); err != nil {
-		log.Fatalf("Error running YANG generator: %v", err)
-	}
+	protocolbackends.RegisterBackend(structures.ManagementProtocol_NETCONF, netconfBackend)
 
-fmt.Println("Go code generation successful!")*/
-
-/*func runYANGGenerator(yangModelPath string, yangFiles []string, outputDir string) error {
-	// Set up the YANG model files for generation
-	genParams := &ygot.GeneratorParameters{
-		YangModelsDir: yangModelPath, // Path to YANG models
-		YangFiles:     yangFiles,     // YANG files to process
-		OutputDir:     outputDir,     // Output directory for generated code
-	}
-
-	// Generate Go code from the YANG files
-	if err := genutil.GenerateCode(genParams); err != nil {
-		return fmt.Errorf("failed to generate Go code from YANG files: %v", err)
-	}
-
-	return nil
-}*/
+	// Add other protocol backends like SNMP here as needed
+}

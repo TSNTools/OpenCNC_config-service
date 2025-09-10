@@ -1,0 +1,23 @@
+title Qbv Mapping Flow (From TopologyConfig to ygot Struct)
+
+participant main.go
+participant engine.MappingEngine
+participant protocolbackends.Registry
+participant protocolbackends.netconf.Backend
+participant plugins.qbv.netconf.Plugin
+
+main.go->engine.MappingEngine: ApplyTopologyConfig(config *TopologyConfig)
+loop for each NodeConfig
+    loop for each PortConfig with GCL
+        engine.MappingEngine->protocolbackends.Registry: GetBackend(MgmtProtocol_NETCONF)
+        protocolbackends.Registry-->engine.MappingEngine: netconf.Backend
+
+        engine.MappingEngine->protocolbackends.netconf.Backend: GetPlugin("qbv")
+        protocolbackends.netconf.Backend-->engine.MappingEngine: qbv.netconf.Plugin
+
+        engine.MappingEngine->plugins.qbv.netconf.Plugin: MapQbvToYgot(gcl *qbv.GateControlList)
+        plugins.qbv.netconf.Plugin->plugins.qbv.netconf.Plugin: Convert proto → ygot struct (ieee802-dot1q-sched)
+        plugins.qbv.netconf.Plugin-->engine.MappingEngine: *ieee802_dot1q_sched.QbvConfig
+    end
+end
+engine.MappingEngine-->main.go: Mapping complete (ygot tree ready)
