@@ -1,0 +1,33 @@
+<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces">
+  <interface>
+    <name>PORT_0</name>
+    <bridge-port xmlns="urn:ieee:std:802.1Q:yang:ieee802-dot1q-bridge">
+      <gate-parameter-table xmlns="urn:ieee:std:802.1Q:yang:ieee802-dot1q-sched">
+        <admin-base-time>
+          <seconds>1680000000</seconds>
+          <nanoseconds>0</nanoseconds>
+        </admin-base-time>
+        <admin-cycle-time>
+          <numerator>1200000</numerator>
+          <denominator>1000000000</denominator>
+        </admin-cycle-time>
+        <admin-gate-states>15</admin-gate-states>
+        <gate-enabled>true</gate-enabled>
+        <admin-control-list>
+          <gate-control-entry>
+            <index>1</index>
+            <operation-name>set-gate-states</operation-name>
+            <time-interval-value>500000</time-interval-value>
+            <gate-states-value>255</gate-states-value>
+          </gate-control-entry>
+          <gate-control-entry>
+            <index>2</index>
+            <operation-name>set-gate-states</operation-name>
+            <time-interval-value>700000</time-interval-value>
+            <gate-states-value>15</gate-states-value>
+          </gate-control-entry>
+        </admin-control-list>
+      </gate-parameter-table>
+    </bridge-port>
+  </interface>
+</interfaces>

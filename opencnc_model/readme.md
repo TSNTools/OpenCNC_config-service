@@ -1,0 +1,6 @@
+to generate the openCNC_model:
+1.
+generator -path . -output_file openCNC_model.go -package_name openCNC_model -generate_fakeroot -annotations -generate_structs=true -include_schema iana-crypt-hash@2014-08-06.yang iana-hardware@2018-03-13.yang iana-if-type.yang iecieee60802-ethernet-interface.yang ieee1588-ptp-tt.yang ieee802-dot1ab-types.yang ieee802-dot1as-gptp.yang ieee802-dot1as-hs.yang ieee802-dot1dc-sched-if.yang ieee802-dot1q-bridge.yang ieee802-dot1q-sched-bridge.yang ieee802-dot1q-sched-modified.yang ieee802-dot1q-stream-filters-gates.yang ieee802-dot1q-types.yang ieee802-ethernet-interface.yang ieee802-types.yang ietf-datastores@2024-04-16.yang ietf-inet-types@2013-07-15.yang ietf-interfaces.yang ietf-ip@2018-02-22.yang ietf-netconf-monitoring@2010-10-04.yang ietf-restconf@2017-01-26.yang ietf-routing@2018-03-13.yang ietf-x509-cert-to-name@2014-12-10.yang ietf-yang-patch@2017-02-22.yang ietf-yang-schema-mount@2019-01-14.yang ietf-yang-types@2013-07-15.yang 
+
+2.
+go run ./code/namespacegenerator.go

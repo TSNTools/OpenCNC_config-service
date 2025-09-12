@@ -1,0 +1,288 @@
+module ieee802-dot1q-sched {
+  yang-version "1.1";
+  namespace urn:ieee:std:802.1Q:yang:ieee802-dot1q-sched;
+  prefix sched;
+
+  import ietf-yang-types {
+    prefix yang;
+  }
+  import ieee802-types {
+    prefix ieee802;
+  }
+  import ieee802-dot1q-types {
+    prefix dot1q-types;
+  }
+
+  organization
+    "IEEE 802.1 Working Group";
+  contact
+    "WG-URL: http://www.ieee802.org/1/
+    WG-EMail: stds-802-1-l@ieee.org
+
+    Contact: IEEE 802.1 Working Group Chair
+    Postal: C/O IEEE 802.1 Working Group
+    IEEE Standards Association
+    445 Hoes Lane
+    Piscataway, NJ 08854
+    USA
+
+    E-mail: STDS-802-1-CHAIRS@IEEE.ORG";
+  description
+    "This module provides for management of IEEE Std 802.1Q Bridges that
+    support Scheduled Traffic Enhancements.
+
+    Copyright (C) IEEE (2023).
+
+    This version of this YANG module is part of IEEE Std 802.1Q; see the
+    standard itself for full legal notices.";
+
+  revision 2023-10-22 {
+    description
+      "Published as part of IEEE Std 802.1Qcw-2023.
+
+      The following reference statement identifies each referenced IEEE
+      Standard as updated by applicable amendments.";
+    reference
+      "IEEE Std 802.1Q Bridges and Bridged Networks:
+      IEEE Std 802.1Q-2022, IEEE Std 802.1Qcz-2023, IEEE Std 802.1Qcw-2023.";
+  }
+
+  feature scheduled-traffic {
+    description
+      "Enhancements for Scheduled Traffic supported.";
+    reference
+      "IEEE Std 802.1Q";
+  }
+
+  identity set-gate-states {
+    base dot1q-types:type-of-operation;
+    description
+      "Operation to set the gate states.";
+  }
+
+  identity set-and-hold-mac {
+    base dot1q-types:type-of-operation;
+    description
+      "Operation to set and hold MAC.";
+  }
+
+  identity set-and-release-mac {
+    base dot1q-types:type-of-operation;
+    description
+      "Operation to set and release MAC.";
+  }
+
+  grouping sched-parameters {
+    description
+      "sched-parameters comprises all of the parameters associated with
+      Scheduled Traffic configuration.";
+
+    container gate-parameter-table {
+      description
+        "A table that contains the per-port manageable parameters for
+        traffic scheduling. For a given Port, an entry in the table exists.
+        All writable objects in this table must be persistent over power up
+        restart/reboot.";
+      reference
+        "12.29.1, 8.6.8.4 and 8.6.9 of IEEE Std 802.1Q";
+
+      list queue-max-sdu-table {
+        key "traffic-class";
+        description
+          "A list containing a set of max SDU parameters, one for each
+          traffic class. All writable objects in this table must be
+          persistent over power up restart/reboot.";
+        reference
+          "12.29.1.1, 8.6.8.4 and 8.6.9 of IEEE Std 802.1Q";
+        leaf traffic-class {
+          type dot1q-types:traffic-class-type;
+          description "Traffic class";
+        }
+        leaf queue-max-sdu {
+          type uint32;
+          default "0";
+          description
+            "The value of the queueMaxSDU parameter for the traffic class.";
+        }
+        leaf transmission-overrun {
+          type yang:counter64;
+          default "0";
+          config false;
+          description
+            "A counter of transmission overrun events.";
+        }
+      }
+
+      leaf gate-enabled {
+        type boolean;
+        default "false";
+        description "Whether traffic scheduling is active.";
+      }
+
+      leaf admin-gate-states {
+        type uint8;
+        default "255";
+        description "Administrative initial gate states.";
+      }
+
+      leaf oper-gate-states {
+        type uint8;
+        config false;
+        description "Operational current gate states.";
+      }
+
+      container admin-control-list {
+        must "(count(./gate-control-entry) <= ../supported-list-max)" {
+          error-message
+            "Number of elements in admin-control-list must not be greater than supported-list-max";
+        }
+        description
+          "Administrative gate control list for the Port.";
+        reference
+          "12.29.1.2, 8.6.8.4 and 8.6.9.4.2 of IEEE Std 802.1Q";
+
+        list gate-control-entry {
+          key "index";
+          leaf index {
+            type uint32;
+            description "Index of the entry.";
+          }
+          leaf operation-name {
+            type identityref {
+              base dot1q-types:type-of-operation;
+            }
+            description "Type of operation for this entry.";
+          }
+          leaf gate-states-value {
+            type uint8;
+            mandatory true;
+            description
+              "Gate states for this entry for the Port.";
+            reference
+              "12.29.1.2.2 and 8.6.8.4 of IEEE Std 802.1Q.";
+          }
+          leaf time-interval-value {
+            type uint32;
+            description "Time interval value in nanoseconds.";
+          }
+        }
+      }
+
+      container oper-control-list {
+        must "(count(./gate-control-entry) <= ../supported-list-max)" {
+          error-message
+            "Number of elements in oper-control-list must not be greater than supported-list-max";
+        }
+        config false;
+        description
+          "Operational gate control list for the Port.";
+        reference
+          "12.29.1.2, 8.6.8.4 and 8.6.9.4.18 of IEEE Std 802.1Q";
+
+        list gate-control-entry {
+          key "index";
+          leaf index {
+            type uint32;
+            description "Index of the entry.";
+          }
+          leaf operation-name {
+            type identityref {
+              base dot1q-types:type-of-operation;
+            }
+            description "Type of operation for this entry.";
+          }
+          leaf gate-states-value {
+            type uint8;
+            mandatory true;
+            description
+              "Gate states for this entry for the Port.";
+            reference
+              "12.29.1.2.2 and 8.6.8.4 of IEEE Std 802.1Q.";
+          }
+          leaf time-interval-value {
+            type uint32;
+            description "Time interval value in nanoseconds.";
+          }
+        }
+      }
+
+      container admin-cycle-time {
+        must "(./numerator div ./denominator <= ../supported-cycle-max/numerator div ../supported-cycle-max/denominator)" {
+          error-message
+            "admin-cycle-time must not be greater than supported-cycle-max";
+        }
+        uses ieee802:rational-grouping;
+      }
+
+      container oper-cycle-time {
+        must "(./numerator div ./denominator <= ../supported-cycle-max/numerator div ../supported-cycle-max/denominator)" {
+          error-message
+            "oper-cycle-time must not be greater than supported-cycle-max";
+        }
+        config false;
+        uses ieee802:rational-grouping;
+      }
+
+      leaf admin-cycle-time-extension {
+        type uint32;
+        units "nanoseconds";
+      }
+
+      leaf oper-cycle-time-extension {
+        type uint32;
+        units "nanoseconds";
+        config false;
+      }
+
+      container admin-base-time {
+        uses ieee802:ptp-time-grouping;
+      }
+
+      container oper-base-time {
+        config false;
+        uses ieee802:ptp-time-grouping;
+      }
+
+      leaf config-change {
+        type boolean;
+      }
+
+      container config-change-time {
+        config false;
+        uses ieee802:ptp-time-grouping;
+      }
+
+      leaf tick-granularity {
+        type uint32;
+        config false;
+      }
+
+      container current-time {
+        config false;
+        uses ieee802:ptp-time-grouping;
+      }
+
+      leaf config-pending {
+        type boolean;
+        config false;
+      }
+
+      leaf config-change-error {
+        type yang:counter64;
+        config false;
+      }
+
+      leaf supported-list-max {
+        type uint32;
+      }
+
+      container supported-cycle-max {
+        uses ieee802:rational-grouping;
+      }
+
+      leaf supported-interval-max {
+        type uint32;
+      }
+    }
+  }
+}

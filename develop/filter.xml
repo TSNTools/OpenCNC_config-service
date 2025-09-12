@@ -1,0 +1,10 @@
+<filter xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" type="subtree">
+  <interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces">
+    <interface>
+      <name>PORT_0</name>
+      <bridge-port xmlns="urn:ieee:std:802.1Q:yang:ieee802-dot1q-bridge">
+        <gate-parameter-table xmlns="urn:ieee:std:802.1Q:yang:ieee802-dot1q-sched"/>
+      </bridge-port>
+    </interface>
+  </interfaces>
+</filter>
