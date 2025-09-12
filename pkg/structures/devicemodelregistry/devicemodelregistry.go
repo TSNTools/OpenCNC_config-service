@@ -24,6 +24,6 @@ func (deviceModel *DeviceModel) Print() {
 	for _, yangFile := range deviceModel.YangFiles {
 		fmt.Printf("  - YangFile: %s\n", yangFile.Name)
 		fmt.Printf("  	- Revision: %s\n", yangFile.Revision)
-		fmt.Printf("  	- Structure: %s\n", yangFile.Structure)
+		//fmt.Printf("  	- Structure: %s\n", yangFile.Description)
 	}
 }

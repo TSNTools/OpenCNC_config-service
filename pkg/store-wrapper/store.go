@@ -19,9 +19,9 @@ To read using etcdctl:
 */
 
 import (
-	devicemodelregistry "config-service/pkg/structures/device-model-registry"
-	moduleregistry "config-service/pkg/structures/module-registry"
-	"config-service/pkg/structures/topology"
+	devicemodelregistry "OpenCNC_config_service/pkg/structures/devicemodelregistry"
+	moduleregistry "OpenCNC_config_service/pkg/structures/module-registry"
+	"OpenCNC_config_service/pkg/structures/topology"
 
 	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
 	"google.golang.org/protobuf/proto"
