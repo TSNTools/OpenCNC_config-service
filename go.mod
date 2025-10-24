@@ -47,19 +47,18 @@ require (
 )
 
 require (
-	github.com/clbanning/mxj v1.8.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/golang/glog v1.2.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
-	github.com/openconfig/gnmi v0.14.1 // indirect
+	github.com/openconfig/gnmi v0.14.1
 	go.etcd.io/etcd/client/v3 v3.6.4
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/net v0.41.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb // indirect
-	google.golang.org/grpc v1.71.1 // indirect
+	google.golang.org/grpc v1.71.1
 )
 
 require (

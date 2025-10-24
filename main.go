@@ -2,67 +2,74 @@ package main
 
 import (
 	"log"
+	"net"
 	"os"
 
-	"OpenCNC_config_service/pkg/managementSessions"
-	"OpenCNC_config_service/pkg/plugins/netconf"
-	qbv "OpenCNC_config_service/pkg/structures/qbv"
-	topology "OpenCNC_config_service/pkg/structures/topology"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 
-	"github.com/golang/protobuf/proto"
+	"crypto/tls"
+	"crypto/x509"
+
+	gnmiImpl "OpenCNC_config_service/pkg/gnmi" // Your wrapper implementing GNMIService
+	service "OpenCNC_config_service/pkg/structures/service"
+
+	gnmi "github.com/openconfig/gnmi/proto/gnmi" // Official gNMI package
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
-	logger := log.New(os.Stdout, "", log.LstdFlags)
-	plugin := netconf.NewQbvNetconfPlugin(logger)
+	logger := log.New(os.Stdout, "[Config-Service] ", log.LstdFlags)
 
-	// Create a mock GateControlList message
-	gcl := &qbv.GateControlList{
-		ScheduleId: "test-sched-001",
-		BaseTime:   1680000000000000000, // nanoseconds
-		CycleTime:  1350000,             // nanoseconds
-		AdminState: qbv.AdminState_ENABLED,
-		Entries: []*qbv.GateControlEntry{
-			{
-				Index:        1,
-				TimeInterval: 500000,
-				GateStates:   []byte{0b11111111},
-				Description:  "Open all gates",
-			},
-			{
-				Index:        2,
-				TimeInterval: 700000,
-				GateStates:   []byte{0b00001111},
-				Description:  "Open lower gates",
-			},
-		},
-	}
-
-	// Call the Map function
-	mapped, err := plugin.Map(proto.Message(gcl))
+	// --- Load server certificate and key ---
+	serverCert, err := tls.LoadX509KeyPair("/certs/tls.crt", "/certs/tls.key")
 	if err != nil {
-		logger.Fatalf("Map failed: %v", err)
+		logger.Fatalf("Failed to load server TLS cert/key: %v", err)
 	}
 
-	logger.Println("Mapping successful !")
-	//logger.Printf("%+v\n", mapped.(*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_GateParameterTable))
-
-	// Define test target (set actual IP and credentials here)
-	target := managementSessions.DeviceTarget{
-		Info: &topology.ManagementInfo{
-			IpAddress:      "192.168.4.64",
-			ManagementPort: 830,
-			UserName:       "sys-admin",
-			Protocol:       topology.ManagementProtocol_NETCONF,
-		},
-		Secret:        "sys-admin",
-		Logger:        logger,
-		InterfaceName: "PORT_0",
-	}
-
-	// Call the Push function
-	err = plugin.Push(mapped, target)
+	// --- Load CA certificate to verify clients ---
+	caCertPEM, err := os.ReadFile("/certs/ca.crt")
 	if err != nil {
-		logger.Fatalf("Push failed: %v", err)
+		logger.Fatalf("Failed to load CA certificate: %v", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+		logger.Fatalf("Failed to append CA certificate to pool")
+	}
+
+	// --- Configure mutual TLS ---
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{serverCert}, // server identity
+		ClientCAs:    caCertPool,                    // trust clients signed by this CA
+		ClientAuth:   tls.NoClientCert,              // only server authenticates
+		// //tls.RequireAndVerifyClientCert, // 🔒 require valid client cert
+		MinVersion: tls.VersionTLS13, // enforce modern TLS
+	}
+
+	creds := credentials.NewTLS(tlsConfig)
+
+	// --- Create TCP listener ---
+	listener, err := net.Listen("tcp", ":5150")
+	if err != nil {
+		logger.Fatalf("Failed to listen on :5150: %v", err)
+	}
+
+	// --- Create gRPC server with TLS credentials ---
+	grpcServer := grpc.NewServer(grpc.Creds(creds))
+
+	// --- Register ConfigService and gNMI service ---
+	svc := service.NewConfigServiceServerImpl(logger)
+	service.RegisterConfigServiceServer(grpcServer, svc)
+	gnmi.RegisterGNMIServer(grpcServer, gnmiImpl.NewGNMIService(logger))
+
+	// --- Optional: reflection ---
+	reflection.Register(grpcServer)
+
+	logger.Println("🔐 gRPC server with TLS started on port 5150")
+
+	// --- Start serving ---
+	if err := grpcServer.Serve(listener); err != nil {
+		logger.Fatalf("gRPC server failed: %v", err)
 	}
 }
