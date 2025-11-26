@@ -24,6 +24,7 @@
 #    - The Helm chart pulls the image from GHCR using the repository, service name,
 #      and image tag. The image tag (commit SHA) ensures the deployment uses the
 #      exact version of the image that was built in the CI pipeline.
+
 name: Build, Push, and Update Deployment
 
 on:
