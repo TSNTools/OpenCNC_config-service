@@ -1,0 +1,24 @@
+# Environment variables
+.env
+.env.*
+*.env
+
+# IDE / Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Binaries & build artifacts
+bin/
+.bin/
+*.exe
+*.exe;
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Compiled test plugin binaries
+config_service/test_plugins/test_plugins

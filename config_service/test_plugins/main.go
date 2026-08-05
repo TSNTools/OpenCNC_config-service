@@ -19,8 +19,8 @@ import (
 
 func main() {
 	testType := flag.String("test", "apply-config", "Type of test to run: apply-config, qbv-relym, qbv-relym-multi, qbv-bandr-multi, qbv-tttech, vlan-tttech, priority-tttech, netconf-protocol, all")
-	configID := flag.String("configId", "7e14f5f9-6d6b-413c-b4d4-2d2c1a86141b", "Configuration ID (used with apply-config)")
-	flag.StringVar(configID, "id", "7e14f5f9-6d6b-413c-b4d4-2d2c1a86141b", "Short flag for configuration ID")
+	configID := flag.String("configId", "2f009d9e-3efe-4e59-a750-bac2f30e4d5a", "Configuration ID (used with apply-config)")
+	flag.StringVar(configID, "id", "2f009d9e-3efe-4e59-a750-bac2f30e4d5a", "Short flag for configuration ID")
 	flag.Parse()
 
 	switch *testType {

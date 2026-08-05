@@ -42,17 +42,17 @@ func TestApplyConfigByIdWithRunningConfig(configID string) {
 	netconfPlugins := plugins.ForProtocol(topology.ManagementProtocol_NETCONF, testLogger)
 	netconfBackend := protocolbackends.NewNetconfBackend("netconf", testLogger, netconfPlugins...)
 
-	secret := os.Getenv("NETCONF_PASSWORD")
-	if secret == "" {
-		secret = "sys-admin"
-	}
-
 	// 3. For each node, fetch the live running config to populate snapshots
 	for _, node := range topo.GetNodes() {
 		if node == nil || node.ManagementInfo == nil {
 			continue
 		}
 		if node.ManagementInfo.Protocol == topology.ManagementProtocol_NETCONF {
+			secret := os.Getenv("NETCONF_PASSWORD")
+			if secret == "" {
+				secret = node.ManagementInfo.UserName
+			}
+
 			testLogger.Printf("Target Node: %s | IP: %s | User: %s | Port: %d",
 				node.Name,
 				node.ManagementInfo.IpAddress,
@@ -70,6 +70,7 @@ func TestApplyConfigByIdWithRunningConfig(configID string) {
 	mappingEngine.RegisterBackend(netconfBackend)
 
 	// 5. Apply Configuration
+	secret := os.Getenv("NETCONF_PASSWORD")
 	testLogger.Printf("Applying configuration ID %s across nodes...", configID)
 	if err := mappingEngine.ApplyConfiguration(topo, cfg, secret); err != nil {
 		testLogger.Fatalf("ApplyConfiguration failed: %v", err)

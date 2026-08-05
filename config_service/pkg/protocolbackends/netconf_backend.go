@@ -216,8 +216,8 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 		logger.Printf("Processing port %q", portConfig.PortId)
 
 		secret := os.Getenv("NETCONF_PASSWORD")
-		if secret == "" {
-			secret = "sys-admin"
+		if secret == "" && node.ManagementInfo != nil {
+			secret = node.ManagementInfo.UserName
 		}
 
 		target := managementSessions.DeviceTarget{
@@ -555,10 +555,15 @@ func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot, node *topology.
 		return fmt.Errorf("snapshot has no pending operations and snapshot XML is empty")
 	}
 
+	secret := os.Getenv("NETCONF_PASSWORD")
+	if secret == "" && node.ManagementInfo != nil {
+		secret = node.ManagementInfo.UserName
+	}
+
 	session, err := managementSessions.CreateSession(
 		node.ManagementInfo.IpAddress,
 		node.ManagementInfo.UserName,
-		os.Getenv("NETCONF_PASSWORD"),
+		secret,
 	)
 	if err != nil {
 		return fmt.Errorf("NETCONF session failed: %w", err)
