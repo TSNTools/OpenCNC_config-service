@@ -7,7 +7,7 @@
 package service
 
 import (
-	topology_config "OpenCNC_config_service/common/structures/topology_config"
+	topology_config "OpenCNC_config-service/common/structures/topology_config"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"

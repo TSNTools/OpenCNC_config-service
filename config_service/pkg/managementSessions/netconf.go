@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/beevik/etree"
 	"github.com/openshift-telco/go-netconf-client/netconf"
 	"github.com/openshift-telco/go-netconf-client/netconf/message"
 	"golang.org/x/crypto/ssh"
@@ -65,6 +66,8 @@ func EditConfig(session *netconf.Session, xmlData string) error {
 		message.DefaultOperationTypeMerge,
 		xmlData,
 	)
+	// fmt.Println("edit-config payload:")
+	// fmt.Println(prettyPrintXML(xmlData))
 	reply, err := session.SyncRPC(rpc, 5)
 	if err != nil {
 		return fmt.Errorf("edit-config RPC failed: %w", err)
@@ -78,8 +81,8 @@ func EditConfig(session *netconf.Session, xmlData string) error {
 		return fmt.Errorf("edit-config failed: %w", err)
 	}
 
-	fmt.Println("edit-config reply:")
-	fmt.Println(reply.RawReply)
+	// fmt.Println("edit-config reply:")
+	// fmt.Println(reply.RawReply)
 
 	return nil
 }
@@ -117,4 +120,19 @@ func checkNetconfOKReply(rawReply string) error {
 	}
 
 	return nil
+}
+
+func prettyPrintXML(xmlData string) string {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(xmlData); err != nil {
+		return xmlData
+	}
+
+	doc.Indent(2)
+	formatted, err := doc.WriteToString()
+	if err != nil {
+		return xmlData
+	}
+
+	return formatted
 }

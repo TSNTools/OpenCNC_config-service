@@ -1,10 +1,10 @@
 package protocolbackends
 
 import (
-	"OpenCNC_config_service/common/structures/topology"
-	topology_config "OpenCNC_config_service/common/structures/topology_config"
-	"OpenCNC_config_service/config_service/pkg/managementSessions"
-	"OpenCNC_config_service/config_service/pkg/plugins"
+	"OpenCNC_config-service/common/structures/topology"
+	topology_config "OpenCNC_config-service/common/structures/topology_config"
+	"OpenCNC_config-service/config_service/pkg/managementSessions"
+	"OpenCNC_config-service/config_service/pkg/plugins"
 )
 
 type ProtocolBackend interface {

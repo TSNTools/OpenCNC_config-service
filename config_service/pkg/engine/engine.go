@@ -3,10 +3,10 @@ package engine
 import (
 	"fmt"
 
-	"OpenCNC_config_service/common/observability"
-	"OpenCNC_config_service/common/structures/topology"
-	"OpenCNC_config_service/common/structures/topology_config"
-	protocolbackends "OpenCNC_config_service/config_service/pkg/protocolbackends"
+	"OpenCNC_config-service/common/observability"
+	"OpenCNC_config-service/common/structures/topology"
+	"OpenCNC_config-service/common/structures/topology_config"
+	protocolbackends "OpenCNC_config-service/config_service/pkg/protocolbackends"
 )
 
 type Operation struct {
@@ -34,8 +34,9 @@ func (t *ConfigurationTransaction) Commit() error {
 			t.Rollback()
 
 			return fmt.Errorf(
-				"commit failed for node %s, Aborted transaction and rolled back previous commits",
+				"commit failed for node %s (%w), Aborted transaction and rolled back previous commits",
 				op.Node.Name,
+				err,
 			)
 		}
 

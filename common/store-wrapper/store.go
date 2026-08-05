@@ -19,10 +19,10 @@ To read using etcdctl:
 */
 
 import (
-	devicemodelregistry "OpenCNC_config_service/common/structures/devicemodelregistry"
-	moduleregistry "OpenCNC_config_service/common/structures/module-registry"
-	"OpenCNC_config_service/common/structures/topology"
-	"OpenCNC_config_service/common/structures/topology_config"
+	devicemodelregistry "OpenCNC_config-service/common/structures/devicemodelregistry"
+	moduleregistry "OpenCNC_config-service/common/structures/module-registry"
+	"OpenCNC_config-service/common/structures/topology"
+	"OpenCNC_config-service/common/structures/topology_config"
 	"fmt"
 
 	"git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger/pkg/logger"
@@ -77,6 +77,39 @@ func GetDeviceModel(name string) (*devicemodelregistry.DeviceModel, error) {
 }
 
 func GetTopology() (*topology.Topology, error) {
+	// Preferred: shared JSON topology written by main-service under a single key.
+	/*if raw, err := GetFromStore("topology-v2/topology"); err == nil {
+		var topo topology.Topology
+		// Be lenient with field names/extra fields across schema versions.
+		// Without this, a single unknown JSON field (e.g., "port_speed" vs "portSpeed")
+		// causes us to fall back to legacy per-node keys, which may contain stale data.
+		if uerr := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &topo); uerr == nil {
+			log.Infof("[store] Topology counts (v2/json): nodes=%d links=%d", len(topo.GetNodes()), len(topo.GetLinks()))
+			if len(topo.GetNodes()) > 0 || len(topo.GetLinks()) > 0 {
+				return &topo, nil
+			}
+		} else {
+			log.Warnf("[store] Failed to unmarshal topology-v2/topology JSON: %v", uerr)
+		}
+	}*/
+
+	var topo = &topology.Topology{}
+
+	endnodes := getNodes("endnodes")
+	bridges := getNodes("bridges")
+	log.Infof("[store] Topology counts: endnodes=%d bridges=%d", len(endnodes), len(bridges))
+
+	topo.Nodes = append(endnodes, bridges...)
+
+	links := getLinks("links")
+	log.Infof("[store] Topology counts: links=%d", len(links))
+
+	topo.Links = append(topo.Links, links...)
+
+	return topo, nil
+}
+
+/*func GetTopology() (*topology.Topology, error) {
 	var topo = &topology.Topology{}
 
 	endnodes := getNodes("endnodes")
@@ -89,7 +122,7 @@ func GetTopology() (*topology.Topology, error) {
 	topo.Links = append(topo.Links, links...)
 
 	return topo, nil
-}
+}*/
 
 func GetModuleRegistry() (*moduleregistry.ModuleRegistry, error) {
 	// Build the URN for the request data
@@ -112,7 +145,7 @@ func GetModuleRegistry() (*moduleregistry.ModuleRegistry, error) {
 func GetConfiguration(confId string) (*topology_config.TopologyConfig, error) {
 	// this requires all configurations in the store to be normilized to topology_config.TopologyConfig,
 	//  otherwise it will fail to unmarshal
-	urn := "configurations." + confId
+	urn := "configurations" + confId
 
 	rawConf, err := GetFromStore(urn)
 	if err != nil {

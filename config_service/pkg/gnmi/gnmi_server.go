@@ -3,7 +3,7 @@ package gnmi
 import (
 	"context"
 
-	"OpenCNC_config_service/common/observability"
+	"OpenCNC_config-service/common/observability"
 
 	gnmi "github.com/openconfig/gnmi/proto/gnmi"
 	"google.golang.org/grpc"

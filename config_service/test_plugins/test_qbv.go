@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
-	qbv "OpenCNC_config_service/common/structures/qbv"
-	"OpenCNC_config_service/common/structures/topology"
-	opencncModel "OpenCNC_config_service/config_service/opencnc_model"
-	managementSessions "OpenCNC_config_service/config_service/pkg/managementSessions"
-	netconf "OpenCNC_config_service/config_service/pkg/plugins/netconf"
+	qbv "OpenCNC_config-service/common/structures/qbv"
+	"OpenCNC_config-service/common/structures/topology"
+	opencncModel "OpenCNC_config-service/config_service/opencnc_model"
+	managementSessions "OpenCNC_config-service/config_service/pkg/managementSessions"
+	netconf "OpenCNC_config-service/config_service/pkg/plugins/netconf"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/openconfig/ygot/ygot"
@@ -104,5 +105,175 @@ func TestQbvPlugin_tttech() {
 	err = plugin.Push(mapped, target)
 	if err != nil {
 		logger.Fatalf("Push failed: %v", err)
+	}
+}
+
+func TestQbvPlugin_relym() {
+	logger := log.New(log.Writer(), "[TEST-relym-QBV] ", log.LstdFlags)
+
+	password := os.Getenv("NETCONF_PASSWORD")
+	if password == "" {
+		password = ""
+	}
+
+	target := managementSessions.DeviceTarget{
+		InterfaceName: "PORT_0",
+		Logger:        logger,
+		Secret:        password,
+		Info: &topology.ManagementInfo{
+			IpAddress:      "192.168.4.64",
+			UserName:       "sys-admin",
+			ManagementPort: 830,
+			Protocol:       topology.ManagementProtocol_NETCONF,
+		},
+	}
+
+	plugin := netconf.NewQbvNetconfPlugin(logger)
+
+	gcl := &qbv.GateControlList{
+		ScheduleId: "sched-relym",
+		AdminState: qbv.AdminState_ENABLED,
+		BaseTime:   0,
+		CycleTime:  1_000_000,
+		Entries: []*qbv.GateControlEntry{
+			{Index: 0, TimeInterval: 250_000, GateStates: []byte{0x0F}},
+			{Index: 1, TimeInterval: 250_000, GateStates: []byte{0x03}},
+			{Index: 2, TimeInterval: 250_000, GateStates: []byte{0x0F}},
+			{Index: 3, TimeInterval: 250_000, GateStates: []byte{0x03}},
+		},
+	}
+
+	mapped, err := plugin.Map(proto.Message(gcl))
+	if err != nil {
+		logger.Fatalf("Map failed: %v", err)
+	}
+
+	err = plugin.Push(mapped, target)
+	if err != nil {
+		logger.Fatalf("Push failed: %v", err)
+	}
+}
+
+func TestQbvPlugin_relym_multiPort() {
+	logger := log.New(log.Writer(), "[TEST-relym-QBV-MULTI] ", log.LstdFlags)
+
+	password := os.Getenv("NETCONF_PASSWORD")
+	if password == "" {
+		password = "sys-admin"
+	}
+
+	plugin := netconf.NewQbvNetconfPlugin(logger)
+
+	ports := []string{"PORT_0", "PORT_1", "PORT_2", "PORT_3"}
+	for idx, portName := range ports {
+		target := managementSessions.DeviceTarget{
+			InterfaceName: portName,
+			Logger:        logger,
+			Secret:        password,
+			Info: &topology.ManagementInfo{
+				IpAddress:      "192.168.4.64",
+				UserName:       "sys-admin",
+				ManagementPort: 830,
+				Protocol:       topology.ManagementProtocol_NETCONF,
+			},
+		}
+
+		gcl := &qbv.GateControlList{
+			ScheduleId: fmt.Sprintf("sched-relym-%s", portName),
+			AdminState: qbv.AdminState_ENABLED,
+			BaseTime:   uint64(idx) * 500_000_000,
+			CycleTime:  1_000_000 + uint64(idx)*250_000,
+			Entries:    []*qbv.GateControlEntry{},
+		}
+
+		switch idx {
+		case 0:
+			gcl.Entries = []*qbv.GateControlEntry{
+				{Index: 0, TimeInterval: 150_000, GateStates: []byte{0x0F}},
+				{Index: 1, TimeInterval: 350_000, GateStates: []byte{0x03}},
+				{Index: 2, TimeInterval: 250_000, GateStates: []byte{0x0D}},
+				{Index: 3, TimeInterval: 250_000, GateStates: []byte{0x01}},
+			}
+		case 1:
+			gcl.Entries = []*qbv.GateControlEntry{
+				{Index: 0, TimeInterval: 100_000, GateStates: []byte{0x0F}},
+				{Index: 1, TimeInterval: 200_000, GateStates: []byte{0x07}},
+				{Index: 2, TimeInterval: 300_000, GateStates: []byte{0x0B}},
+				{Index: 3, TimeInterval: 400_000, GateStates: []byte{0x03}},
+			}
+		case 2:
+			gcl.Entries = []*qbv.GateControlEntry{
+				{Index: 0, TimeInterval: 125_000, GateStates: []byte{0x09}},
+				{Index: 1, TimeInterval: 125_000, GateStates: []byte{0x05}},
+				{Index: 2, TimeInterval: 125_000, GateStates: []byte{0x03}},
+				{Index: 3, TimeInterval: 625_000, GateStates: []byte{0x01}},
+			}
+		default:
+			gcl.Entries = []*qbv.GateControlEntry{
+				{Index: 0, TimeInterval: 200_000, GateStates: []byte{0x0F}},
+				{Index: 1, TimeInterval: 200_000, GateStates: []byte{0x01}},
+				{Index: 2, TimeInterval: 200_000, GateStates: []byte{0x05}},
+				{Index: 3, TimeInterval: 400_000, GateStates: []byte{0x0B}},
+			}
+		}
+
+		mapped, err := plugin.Map(proto.Message(gcl))
+		if err != nil {
+			logger.Fatalf("Map failed for %s: %v", portName, err)
+		}
+
+		err = plugin.Push(mapped, target)
+		if err != nil {
+			logger.Fatalf("Push failed for %s: %v", portName, err)
+		}
+	}
+}
+
+func TestQbvPlugin_br2018_multiPort() {
+	logger := log.New(log.Writer(), "[TEST-br2018-QBV-MULTI] ", log.LstdFlags)
+
+	password := "admin"
+
+	plugin := netconf.NewQbvNetconfPlugin_tttech(logger)
+	ports := []string{"sw0p2", "sw0p3", "sw0p4", "sw0p5"}
+
+	for idx, portName := range ports {
+		target := managementSessions.DeviceTarget{
+			InterfaceName: portName,
+			Logger:        logger,
+			Secret:        password,
+			Info: &topology.ManagementInfo{
+				IpAddress:      "192.168.4.65",
+				UserName:       "admin",
+				ManagementPort: 830,
+				Protocol:       topology.ManagementProtocol_NETCONF,
+			},
+		}
+
+		baseTime := uint64(idx) * 320_000_000
+
+		gcl := &qbv.GateControlList{
+			ScheduleId: fmt.Sprintf("sched-br2018-%s", portName),
+			AdminState: qbv.AdminState_ENABLED,
+			BaseTime:   baseTime,
+			CycleTime:  125,
+			Entries: []*qbv.GateControlEntry{
+				{Index: 0, TimeInterval: 7360, GateStates: []byte{0xFF}},
+				{Index: 1, TimeInterval: 3200, GateStates: []byte{0x00}},
+				{Index: 2, TimeInterval: 16000, GateStates: []byte{0x08}},
+				{Index: 3, TimeInterval: 3200, GateStates: []byte{0x00}},
+				{Index: 4, TimeInterval: 95040, GateStates: []byte{0xF3}},
+			},
+		}
+
+		mapped, err := plugin.Map(proto.Message(gcl))
+		if err != nil {
+			logger.Fatalf("Map failed for %s: %v", portName, err)
+		}
+
+		err = plugin.Push(mapped, target)
+		if err != nil {
+			logger.Fatalf("Push failed for %s: %v", portName, err)
+		}
 	}
 }

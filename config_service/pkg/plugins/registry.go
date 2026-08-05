@@ -2,8 +2,8 @@
 package plugins
 
 import (
-	"OpenCNC_config_service/common/observability"
-	"OpenCNC_config_service/common/structures/topology"
+	"OpenCNC_config-service/common/observability"
+	"OpenCNC_config-service/common/structures/topology"
 )
 
 type PluginFactory struct {

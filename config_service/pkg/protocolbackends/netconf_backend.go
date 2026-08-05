@@ -2,14 +2,15 @@ package protocolbackends
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 
-	"OpenCNC_config_service/common/observability"
-	storewrapper "OpenCNC_config_service/common/store-wrapper"
-	"OpenCNC_config_service/common/structures/topology"
-	topology_config "OpenCNC_config_service/common/structures/topology_config"
-	"OpenCNC_config_service/config_service/pkg/managementSessions"
-	"OpenCNC_config_service/config_service/pkg/plugins"
+	"OpenCNC_config-service/common/observability"
+	storewrapper "OpenCNC_config-service/common/store-wrapper"
+	"OpenCNC_config-service/common/structures/topology"
+	topology_config "OpenCNC_config-service/common/structures/topology_config"
+	"OpenCNC_config-service/config_service/pkg/managementSessions"
+	"OpenCNC_config-service/config_service/pkg/plugins"
 
 	"github.com/beevik/etree"
 	"github.com/golang/protobuf/proto"
@@ -17,15 +18,23 @@ import (
 
 var _ ProtocolBackend = (*NetconfBackend)(nil)
 
-type NetconfSnapshot struct {
-	XML []byte // parsed model, cached payload, metadata...
+type NetconfPendingOperation struct {
+	Plugin plugins.Plugin
+	Mapped any
+	Target managementSessions.DeviceTarget
+}
 
+type NetconfSnapshot struct {
+	XML               []byte // parsed model, cached payload, metadata...
+	PendingOperations []NetconfPendingOperation
 }
 
 func (s *NetconfSnapshot) Clone() Snapshot {
-	//todo: check it, this is a placeholder so far
+	opsCopy := make([]NetconfPendingOperation, len(s.PendingOperations))
+	copy(opsCopy, s.PendingOperations)
 	return &NetconfSnapshot{
-		XML: append([]byte(nil), s.XML...),
+		XML:               append([]byte(nil), s.XML...),
+		PendingOperations: opsCopy,
 	}
 }
 
@@ -153,6 +162,36 @@ func (b *NetconfBackend) Plugins() []plugins.Plugin {
 	return b.plugins
 }
 
+func (b *NetconfBackend) InitSnapshot(nodeName string, xmlBytes []byte) {
+	b.snapshots[nodeName] = &SnapshotSet[*NetconfSnapshot]{
+		Current: &NetconfSnapshot{XML: append([]byte(nil), xmlBytes...)},
+	}
+}
+
+func (b *NetconfBackend) FetchAndInitSnapshot(node *topology.Node, secret string) error {
+	if node == nil || node.ManagementInfo == nil {
+		return fmt.Errorf("node or management info is nil")
+	}
+	session, err := managementSessions.CreateSession(
+		node.ManagementInfo.IpAddress,
+		node.ManagementInfo.UserName,
+		secret,
+	)
+	if err != nil {
+		return fmt.Errorf("failed connecting to node %s: %w", node.Name, err)
+	}
+	defer session.Close()
+
+	rawXML, err := managementSessions.GetRunningConfig(session)
+	if err != nil {
+		return fmt.Errorf("failed fetching running config for node %s: %w", node.Name, err)
+	}
+
+	b.InitSnapshot(node.Name, []byte(rawXML))
+	b.logger.Printf("Successfully fetched initial running configuration snapshot for node %s", node.Name)
+	return nil
+}
+
 func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *topology.Node) error {
 	logger := b.logger
 
@@ -203,7 +242,7 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 		target := managementSessions.DeviceTarget{
 			InterfaceName: portConfig.PortId,
 			Logger:        logger,
-			Secret:        "",
+			Secret:        os.Getenv("NETCONF_PASSWORD"),
 			Info:          node.ManagementInfo,
 		}
 
@@ -335,22 +374,27 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 				mapped,
 			)
 
-			logger.Printf("  -> building feature XML")
+			snapshotSet.Working.PendingOperations = append(
+				snapshotSet.Working.PendingOperations,
+				NetconfPendingOperation{
+					Plugin: plugin,
+					Mapped: mapped,
+					Target: target,
+				},
+			)
 
-			featureXML, err := plugin.BuildFeatureXML(mapped)
-
-			if err != nil {
-				return fmt.Errorf("%s: %w", plugin.Name(), err)
+			if len(snapshotSet.Working.XML) > 0 {
+				logger.Printf("  -> building feature XML")
+				featureXML, err := plugin.BuildFeatureXML(mapped)
+				if err != nil {
+					return fmt.Errorf("%s: %w", plugin.Name(), err)
+				}
+				if err := snapshotSet.Working.Update(featureXML, target); err != nil {
+					logger.Printf("  -> warning: failed to update XML snapshot: %v", err)
+				}
 			}
 
-			if err := snapshotSet.Working.Update(
-				featureXML,
-				target,
-			); err != nil {
-				return fmt.Errorf("failed to update snapshot: %w", err)
-			}
-
-			logger.Printf("  -> snapshot update successful")
+			logger.Printf("  -> pending operation added for plugin %s (interface %s)", plugin.Name(), target.InterfaceName)
 		}
 
 		var unused []string
@@ -513,20 +557,31 @@ func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot, node *topology.
 		return fmt.Errorf("snapshot is nil")
 	}
 
+	if len(snapshot.PendingOperations) > 0 {
+		b.logger.Printf("Pushing %d targeted plugin configuration payload(s) to node %s...", len(snapshot.PendingOperations), node.Name)
+		for _, op := range snapshot.PendingOperations {
+			b.logger.Printf("Pushing feature %s for interface %s to node %s (%s)...",
+				op.Plugin.FeatureName(), op.Target.InterfaceName, node.Name, op.Target.Info.IpAddress)
+
+			if err := op.Plugin.Push(op.Mapped, op.Target); err != nil {
+				return fmt.Errorf("plugin %s push failed for interface %s: %w", op.Plugin.Name(), op.Target.InterfaceName, err)
+			}
+		}
+		return nil
+	}
+
 	if len(snapshot.XML) == 0 {
-		return fmt.Errorf("snapshot XML is empty")
+		return fmt.Errorf("snapshot has no pending operations and snapshot XML is empty")
 	}
 
 	session, err := managementSessions.CreateSession(
 		node.ManagementInfo.IpAddress,
 		node.ManagementInfo.UserName,
-		"",
+		os.Getenv("NETCONF_PASSWORD"),
 	)
-
 	if err != nil {
 		return fmt.Errorf("NETCONF session failed: %w", err)
 	}
-
 	defer session.Close()
 
 	if err := managementSessions.EditConfig(

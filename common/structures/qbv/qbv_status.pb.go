@@ -7,12 +7,13 @@
 package qbv
 
 import (
-	sync "OpenCNC_config_service/common/structures/sync"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	sync "OpenCNC_config-service/common/structures/sync"
 	reflect "reflect"
 	sync1 "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (

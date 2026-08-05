@@ -7,15 +7,16 @@
 package topology_config
 
 import (
-	qav "OpenCNC_config_service/common/structures/qav"
-	qbv "OpenCNC_config_service/common/structures/qbv"
-	stp "OpenCNC_config_service/common/structures/stp"
-	vlan "OpenCNC_config_service/common/structures/vlan"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	qav "OpenCNC_config-service/common/structures/qav"
+	qbv "OpenCNC_config-service/common/structures/qbv"
+	stp "OpenCNC_config-service/common/structures/stp"
+	vlan "OpenCNC_config-service/common/structures/vlan"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -293,7 +294,6 @@ func (x *TopologyConfig) GetLinkConfigs() []*LinkConfig {
 	return nil
 }
 
-//
 // Per-node configuration matching Node.name in topology.proto
 type NodeConfig struct {
 	state             protoimpl.MessageState   `protogen:"open.v1"`

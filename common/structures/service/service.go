@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	"OpenCNC_config_service/common/observability"
-	storewrapper "OpenCNC_config_service/common/store-wrapper"
-	observabilityv1 "OpenCNC_config_service/common/structures/logging"
-	"OpenCNC_config_service/common/structures/topology_config"
-	"OpenCNC_config_service/config_service/pkg/engine"
+	"OpenCNC_config-service/common/observability"
+	storewrapper "OpenCNC_config-service/common/store-wrapper"
+	observabilityv1 "OpenCNC_config-service/common/structures/logging"
+	"OpenCNC_config-service/common/structures/topology_config"
+	"OpenCNC_config-service/config_service/pkg/engine"
 )
 
 // ConfigServiceServer implements the generated gRPC interface.
@@ -87,7 +87,7 @@ func (s *ConfigServiceServerImpl) deployConfiguration(ctx context.Context, cfg *
 	if err != nil {
 		return err
 	}
-
+	println("Retrieved**** topology from k/v store")
 	secret := os.Getenv("NETCONF_PASSWORD")
 
 	return s.engine.ApplyConfiguration(

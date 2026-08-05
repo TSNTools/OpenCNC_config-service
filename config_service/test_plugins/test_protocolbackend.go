@@ -3,13 +3,13 @@ package main
 import (
 	"log"
 
-	"OpenCNC_config_service/common/structures/qbv"
-	"OpenCNC_config_service/common/structures/topology"
-	topology_config "OpenCNC_config_service/common/structures/topology_config"
-	vlan "OpenCNC_config_service/common/structures/vlan"
-	"OpenCNC_config_service/config_service/pkg/engine"
-	"OpenCNC_config_service/config_service/pkg/plugins"
-	"OpenCNC_config_service/config_service/pkg/protocolbackends"
+	"OpenCNC_config-service/common/structures/qbv"
+	"OpenCNC_config-service/common/structures/topology"
+	topology_config "OpenCNC_config-service/common/structures/topology_config"
+	vlan "OpenCNC_config-service/common/structures/vlan"
+	"OpenCNC_config-service/config_service/pkg/engine"
+	"OpenCNC_config-service/config_service/pkg/plugins"
+	"OpenCNC_config-service/config_service/pkg/protocolbackends"
 
 	"github.com/openconfig/ygot/ygot"
 	"google.golang.org/protobuf/proto"

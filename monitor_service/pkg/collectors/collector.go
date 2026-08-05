@@ -1,6 +1,6 @@
 package plugins
 
-import "OpenCNC_config_service/monitor_service/structures/monitoring"
+import "OpenCNC_config-service/monitor_service/structures/monitoring"
 
 type Collector interface {
 
