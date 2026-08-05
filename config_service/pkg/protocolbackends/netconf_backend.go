@@ -168,30 +168,6 @@ func (b *NetconfBackend) InitSnapshot(nodeName string, xmlBytes []byte) {
 	}
 }
 
-func (b *NetconfBackend) FetchAndInitSnapshot(node *topology.Node, secret string) error {
-	if node == nil || node.ManagementInfo == nil {
-		return fmt.Errorf("node or management info is nil")
-	}
-	session, err := managementSessions.CreateSession(
-		node.ManagementInfo.IpAddress,
-		node.ManagementInfo.UserName,
-		secret,
-	)
-	if err != nil {
-		return fmt.Errorf("failed connecting to node %s: %w", node.Name, err)
-	}
-	defer session.Close()
-
-	rawXML, err := managementSessions.GetRunningConfig(session)
-	if err != nil {
-		return fmt.Errorf("failed fetching running config for node %s: %w", node.Name, err)
-	}
-
-	b.InitSnapshot(node.Name, []byte(rawXML))
-	b.logger.Printf("Successfully fetched initial running configuration snapshot for node %s", node.Name)
-	return nil
-}
-
 func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *topology.Node) error {
 	logger := b.logger
 
@@ -239,10 +215,15 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 		logger.Printf("======================================================")
 		logger.Printf("Processing port %q", portConfig.PortId)
 
+		secret := os.Getenv("NETCONF_PASSWORD")
+		if secret == "" {
+			secret = "sys-admin"
+		}
+
 		target := managementSessions.DeviceTarget{
 			InterfaceName: portConfig.PortId,
 			Logger:        logger,
-			Secret:        os.Getenv("NETCONF_PASSWORD"),
+			Secret:        secret,
 			Info:          node.ManagementInfo,
 		}
 

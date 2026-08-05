@@ -87,7 +87,7 @@ func (s *ConfigServiceServerImpl) deployConfiguration(ctx context.Context, cfg *
 	if err != nil {
 		return err
 	}
-	println("Retrieved**** topology from k/v store")
+
 	secret := os.Getenv("NETCONF_PASSWORD")
 
 	return s.engine.ApplyConfiguration(

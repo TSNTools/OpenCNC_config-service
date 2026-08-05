@@ -64,9 +64,9 @@ func main() {
 		creds := credentials.NewTLS(tlsConfig)
 	*/
 	// --- Create TCP listener ---
-	listener, err := net.Listen("tcp", ":5152")
+	listener, err := net.Listen("tcp", ":5150")
 	if err != nil {
-		obsClient.FatalF("Failed to listen on :5152: %v", err)
+		obsClient.FatalF("Failed to listen on :5150: %v", err)
 	}
 
 	// --- Create gRPC server with TLS credentials ---
@@ -91,7 +91,7 @@ func main() {
 	reflection.Register(grpcServer)
 
 	if obsClient != nil {
-		obsClient.Println("gRPC server with TLS started on port 5152")
+		obsClient.Println("gRPC server with TLS started on port 5150")
 	}
 
 	// --- Start serving ---

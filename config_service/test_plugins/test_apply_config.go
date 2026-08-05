@@ -8,6 +8,7 @@ import (
 	storewrapper "OpenCNC_config-service/common/store-wrapper"
 	"OpenCNC_config-service/common/structures/topology"
 	"OpenCNC_config-service/config_service/pkg/engine"
+	"OpenCNC_config-service/config_service/pkg/managementSessions"
 	"OpenCNC_config-service/config_service/pkg/plugins"
 	"OpenCNC_config-service/config_service/pkg/protocolbackends"
 )
@@ -59,7 +60,7 @@ func TestApplyConfigByIdWithRunningConfig(configID string) {
 				node.ManagementInfo.ManagementPort,
 			)
 			testLogger.Printf("Fetching live running configuration for node %s (%s:830)...", node.Name, node.ManagementInfo.IpAddress)
-			if err := netconfBackend.FetchAndInitSnapshot(node, secret); err != nil {
+			if err := fetchAndInitNodeSnapshot(netconfBackend, node, secret); err != nil {
 				testLogger.Fatalf("Failed to fetch initial running config for node %s (%s:830): %v", node.Name, node.ManagementInfo.IpAddress, err)
 			}
 		}
@@ -75,6 +76,31 @@ func TestApplyConfigByIdWithRunningConfig(configID string) {
 	}
 
 	testLogger.Printf("Successfully applied configuration ID %s to all target nodes!", configID)
+}
+
+// fetchAndInitNodeSnapshot connects to a node via NETCONF, retrieves its running configuration,
+// and initializes the base snapshot in the NetconfBackend for testing purposes.
+func fetchAndInitNodeSnapshot(backend *protocolbackends.NetconfBackend, node *topology.Node, secret string) error {
+	if node == nil || node.ManagementInfo == nil {
+		return fmt.Errorf("node or management info is nil")
+	}
+	session, err := managementSessions.CreateSession(
+		node.ManagementInfo.IpAddress,
+		node.ManagementInfo.UserName,
+		secret,
+	)
+	if err != nil {
+		return fmt.Errorf("failed connecting to node %s: %w", node.Name, err)
+	}
+	defer session.Close()
+
+	rawXML, err := managementSessions.GetRunningConfig(session)
+	if err != nil {
+		return fmt.Errorf("failed fetching running config for node %s: %w", node.Name, err)
+	}
+
+	backend.InitSnapshot(node.Name, []byte(rawXML))
+	return nil
 }
 
 func printUsageHelp() {

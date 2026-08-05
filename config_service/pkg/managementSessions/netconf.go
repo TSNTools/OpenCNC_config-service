@@ -66,7 +66,7 @@ func EditConfig(session *netconf.Session, xmlData string) error {
 		message.DefaultOperationTypeMerge,
 		xmlData,
 	)
-	// fmt.Println("edit-config payload:")
+
 	// fmt.Println(prettyPrintXML(xmlData))
 	reply, err := session.SyncRPC(rpc, 5)
 	if err != nil {
