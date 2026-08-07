@@ -182,7 +182,37 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 
 	snapshotSet, ok := b.snapshots[node.Name]
 	if !ok {
-		return fmt.Errorf("no snapshot exists for node %s", node.Name)
+		logger.Printf("No snapshot found for node %s. Auto-initializing baseline snapshot via NETCONF get-config...", node.Name)
+		var xmlBytes []byte
+
+		if node.ManagementInfo != nil && node.ManagementInfo.IpAddress != "" {
+			secret := os.Getenv("NETCONF_PASSWORD")
+			if secret == "" {
+				secret = node.ManagementInfo.UserName
+			}
+			session, err := managementSessions.CreateSession(
+				node.ManagementInfo.IpAddress,
+				node.ManagementInfo.UserName,
+				secret,
+			)
+			if err == nil {
+				rawXML, err := managementSessions.GetRunningConfig(session)
+				session.Close()
+				if err == nil && len(rawXML) > 0 {
+					logger.Printf("Successfully auto-initialized snapshot for node %s via NETCONF get-config (%d bytes)", node.Name, len(rawXML))
+					xmlBytes = []byte(rawXML)
+				} else {
+					logger.Printf("Warning: NETCONF get-config for node %s failed: %v", node.Name, err)
+				}
+			} else {
+				logger.Printf("Warning: NETCONF session for auto-initializing node %s failed: %v", node.Name, err)
+			}
+		}
+
+		snapshotSet = &SnapshotSet[*NetconfSnapshot]{
+			Current: &NetconfSnapshot{XML: xmlBytes},
+		}
+		b.snapshots[node.Name] = snapshotSet
 	}
 
 	//
@@ -364,12 +394,15 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 				},
 			)
 
+			logger.Printf("  -> building feature XML")
+			featureXML, err := plugin.BuildFeatureXML(mapped)
+			if err != nil {
+				return fmt.Errorf("%s: %w", plugin.Name(), err)
+			}
+			if featureXML != nil && len(featureXML.XML) > 0 {
+				logger.Printf("  -> Generated feature XML for %s (%s):\n%s\n", plugin.Name(), target.InterfaceName, string(featureXML.XML))
+			}
 			if len(snapshotSet.Working.XML) > 0 {
-				logger.Printf("  -> building feature XML")
-				featureXML, err := plugin.BuildFeatureXML(mapped)
-				if err != nil {
-					return fmt.Errorf("%s: %w", plugin.Name(), err)
-				}
 				if err := snapshotSet.Working.Update(featureXML, target); err != nil {
 					logger.Printf("  -> warning: failed to update XML snapshot: %v", err)
 				}

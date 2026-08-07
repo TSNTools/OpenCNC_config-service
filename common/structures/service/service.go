@@ -27,14 +27,22 @@ func NewConfigServiceServerImpl(obs *observability.Client, engine *engine.Mappin
 // ApplyConfiguration receives a config request ID, retrieves it from store,
 // maps it via the plugin, and pushes it to all NETCONF-capable devices.
 func (s *ConfigServiceServerImpl) ApplyConfiguration(ctx context.Context, req *ConfigurationRequest) (*ConfigurationResponse, error) {
-
+	//fmt.Printf("Received ApplyConfiguration request with ID: %s\n", req.GetId())
 	cfg := req.GetConfiguration()
 	if cfg == nil {
+		fmt.Println("Received ApplyConfiguration payload: <nil>")
 		return &ConfigurationResponse{
 			Success: false,
 			Message: "Configuration is nil",
 		}, fmt.Errorf("configuration is nil")
 	}
+
+	//marshaler := protojson.MarshalOptions{Multiline: true, Indent: "  "}
+	//if jsonBytes, err := marshaler.Marshal(cfg); err == nil {
+	//fmt.Printf("Received ApplyConfiguration payload:\n%s\n", string(jsonBytes))
+	//}// else {
+	//	fmt.Printf("Received ApplyConfiguration payload (raw): %+v\n", cfg)
+	//}
 
 	if err := s.deployConfiguration(ctx, cfg); err != nil {
 		return &ConfigurationResponse{
@@ -52,7 +60,7 @@ func (s *ConfigServiceServerImpl) ApplyConfiguration(ctx context.Context, req *C
 }
 
 func (s *ConfigServiceServerImpl) ApplyConfigurationById(ctx context.Context, req *ConfigurationRequest) (*ConfigurationResponse, error) {
-
+	fmt.Print("i got something ")
 	configId := req.GetId()
 	if configId == "" {
 		return &ConfigurationResponse{

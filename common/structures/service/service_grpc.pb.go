@@ -8,6 +8,7 @@ package service
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -44,6 +45,7 @@ func NewConfigServiceClient(cc grpc.ClientConnInterface) ConfigServiceClient {
 }
 
 func (c *configServiceClient) ApplyConfiguration(ctx context.Context, in *ConfigurationRequest, opts ...grpc.CallOption) (*ConfigurationResponse, error) {
+
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ConfigurationResponse)
 	err := c.cc.Invoke(ctx, ConfigService_ApplyConfiguration_FullMethodName, in, out, cOpts...)

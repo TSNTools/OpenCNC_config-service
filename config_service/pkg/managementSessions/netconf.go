@@ -61,6 +61,7 @@ func GetRunningConfig(session *netconf.Session) (string, error) {
 
 // editConfig sends an <edit-config> RPC with the provided XML payload to the <running> datastore.
 func EditConfig(session *netconf.Session, xmlData string) error {
+	fmt.Printf("[NETCONF EditConfig] Sending XML Payload:\n%s\n", xmlData)
 	rpc := message.NewEditConfig(
 		message.DatastoreRunning,
 		message.DefaultOperationTypeMerge,

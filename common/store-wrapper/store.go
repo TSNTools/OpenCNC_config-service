@@ -112,7 +112,7 @@ func GetModuleRegistry() (*moduleregistry.ModuleRegistry, error) {
 func GetConfiguration(confId string) (*topology_config.TopologyConfig, error) {
 	// this requires all configurations in the store to be normilized to topology_config.TopologyConfig,
 	//  otherwise it will fail to unmarshal
-	urn := "configurations" + confId
+	urn := "configurations.gcl-configuration." + confId
 
 	rawConf, err := GetFromStore(urn)
 	if err != nil {

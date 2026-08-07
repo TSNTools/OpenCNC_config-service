@@ -15,6 +15,7 @@ import (
 	"OpenCNC_config-service/common/structures/topology"
 	"OpenCNC_config-service/config_service/pkg/engine" // Your wrapper implementing GNMIService
 	"OpenCNC_config-service/config_service/pkg/plugins"
+	_ "OpenCNC_config-service/config_service/pkg/plugins/netconf"
 	"OpenCNC_config-service/config_service/pkg/protocolbackends"
 	// Official gNMI package
 )
@@ -64,9 +65,9 @@ func main() {
 		creds := credentials.NewTLS(tlsConfig)
 	*/
 	// --- Create TCP listener ---
-	listener, err := net.Listen("tcp", ":5150")
+	listener, err := net.Listen("tcp", ":5152")
 	if err != nil {
-		obsClient.FatalF("Failed to listen on :5150: %v", err)
+		obsClient.FatalF("Failed to listen on :5152: %v", err)
 	}
 
 	// --- Create gRPC server with TLS credentials ---
@@ -91,7 +92,7 @@ func main() {
 	reflection.Register(grpcServer)
 
 	if obsClient != nil {
-		obsClient.Println("gRPC server with TLS started on port 5150")
+		obsClient.Println("gRPC server with TLS started on port 5152")
 	}
 
 	// --- Start serving ---
