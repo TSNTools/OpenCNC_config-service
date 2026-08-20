@@ -24,12 +24,12 @@ func TestNetconfProtocol() {
 	//plugin_tc := netconf.NewTrafficClassNetconfPlugin(logger)
 	netconfPlugins := plugins.ForProtocol(
 		topology.ManagementProtocol_NETCONF,
-		logger,
+		nil,
 	)
 
 	backend := protocolbackends.NewNetconfBackend(
 		"netconf",
-		logger,
+		nil,
 		netconfPlugins...,
 	)
 	//backend := protocolbackends.NewNetconfBackend("netconf", plugin_qbv, plugin_pcp)

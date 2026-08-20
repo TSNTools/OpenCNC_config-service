@@ -24,6 +24,10 @@ func main() {
 	flag.Parse()
 
 	switch *testType {
+	case "concurrency", "race":
+		fmt.Println("=== Running Concurrency, Timing & Race Detector Test ===")
+		TestConcurrencyAndRace()
+
 	case "apply-config":
 		fmt.Printf("=== Running ApplyConfigurationById Test (ConfigID: %s) ===\n", *configID)
 		TestApplyConfigByIdWithRunningConfig(*configID)
@@ -58,24 +62,27 @@ func main() {
 
 	case "all":
 		fmt.Println("=== Running All Available Plugin Tests ===")
-		fmt.Println("\n[1/7] QBV RELY-TSN4 Test:")
+		fmt.Println("\n[1/8] Concurrency & Race Detector Test:")
+		TestConcurrencyAndRace()
+		fmt.Println("\n[2/8] QBV RELY-TSN4 Test:")
 		TestQbvPlugin_relym()
-		fmt.Println("\n[2/7] QBV RELY-TSN4 Multi-Port Test:")
+		fmt.Println("\n[3/8] QBV RELY-TSN4 Multi-Port Test:")
 		TestQbvPlugin_relym_multiPort()
-		fmt.Println("\n[3/7] QBV B&R Multi-Port Test:")
+		fmt.Println("\n[4/8] QBV B&R Multi-Port Test:")
 		TestQbvPlugin_br2018_multiPort()
-		fmt.Println("\n[4/7] QBV TTTech Test:")
+		fmt.Println("\n[5/8] QBV TTTech Test:")
 		TestQbvPlugin_tttech()
-		fmt.Println("\n[5/7] VLAN TTTech Test:")
+		fmt.Println("\n[6/8] VLAN TTTech Test:")
 		TestVlanPlugin_tttech()
-		fmt.Println("\n[6/7] Priority TTTech Test:")
+		fmt.Println("\n[7/8] Priority TTTech Test:")
 		TestPriorityPlugin_tttech()
-		fmt.Println("\n[7/7] ApplyConfigurationById Test:")
+		fmt.Println("\n[8/8] ApplyConfigurationById Test:")
 		TestApplyConfigByIdWithRunningConfig(*configID)
 
 	default:
 		fmt.Printf("Unknown test type: %s\n\n", *testType)
 		fmt.Println("Available test types:")
+		fmt.Println("  - concurrency / race : Test parallel execution speedup, 2-phase rollback & race detection")
 		fmt.Println("  - apply-config       : Test ApplyConfigurationById via engine & running config")
 		fmt.Println("  - qbv-relym          : Test QBV on RELY-TSN4 switch (single port)")
 		fmt.Println("  - qbv-relym-multi    : Test QBV on RELY-TSN4 switch (multi port)")
