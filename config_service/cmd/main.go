@@ -15,6 +15,7 @@ import (
 	"OpenCNC_config_service/common/structures/topology"
 	"OpenCNC_config_service/config_service/pkg/engine" // Your wrapper implementing GNMIService
 	"OpenCNC_config_service/config_service/pkg/plugins"
+	_ "OpenCNC_config_service/config_service/pkg/plugins/netconf"
 	"OpenCNC_config_service/config_service/pkg/protocolbackends"
 	// Official gNMI package
 )
