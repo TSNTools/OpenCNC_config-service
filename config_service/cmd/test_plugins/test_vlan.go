@@ -3,21 +3,19 @@ package main
 import (
 	"log"
 
-	managementSessions "OpenCNC_config_service/config_service/pkg/managementSessions"
-	netconf "OpenCNC_config_service/config_service/pkg/plugins/netconf"
 	topology "OpenCNC_config_service/common/structures/topology"
 	topology_config "OpenCNC_config_service/common/structures/topology_config"
 	vlan "OpenCNC_config_service/common/structures/vlan"
+	managementSessions "OpenCNC_config_service/config_service/pkg/managementSessions"
+	netconf "OpenCNC_config_service/config_service/pkg/plugins/netconf"
 
 	"google.golang.org/protobuf/proto"
 )
 
 func TestVlanPlugin_tttech() {
-	logger := log.New(log.Writer(), "[TEST-tttech-VLAN] ", log.LstdFlags)
-
 	target := managementSessions.DeviceTarget{
 		InterfaceName: "sw0p3",
-		Logger:        logger,
+		Logger:        nil,
 		Secret:        "",
 		Info: &topology.ManagementInfo{
 			IpAddress:      "192.168.0.1",
@@ -27,15 +25,15 @@ func TestVlanPlugin_tttech() {
 		},
 	}
 
-	pluginVlan := netconf.NewVlanNetconfPlugin(logger)
+	pluginVlan := netconf.NewVlanNetconfPlugin(nil)
 
 	mapped, err := pluginVlan.Map(VlanConfig)
 	if err != nil {
-		logger.Fatalf("Map failed: %v", err)
+		log.Fatalf("Map failed: %v", err)
 	}
 
 	if err := pluginVlan.Push(mapped, target); err != nil {
-		logger.Fatalf("Push failed: %v", err)
+		log.Fatalf("Push failed: %v", err)
 	}
 }
 
