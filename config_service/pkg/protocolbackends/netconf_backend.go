@@ -2,6 +2,7 @@ package protocolbackends
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 
 	"OpenCNC_config_service/common/observability"
@@ -39,75 +40,89 @@ func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, target managementS
 		return fmt.Errorf("feature XML is empty")
 	}
 
+	if len(s.XML) == 0 {
+		return fmt.Errorf("snapshot XML is empty")
+	}
+
 	doc := etree.NewDocument()
 
 	if err := doc.ReadFromBytes(s.XML); err != nil {
 		return fmt.Errorf("failed parsing snapshot XML: %w", err)
 	}
 
-	interfaces := doc.FindElement("//interfaces")
-	if interfaces == nil {
+	// Sanitize: If wrapped in <rpc-reply><data>, extract the <interfaces> block
+	if doc.Root() != nil && doc.Root().Tag != "interfaces" {
+		if intf := doc.FindElement("//interfaces"); intf != nil {
+			newDoc := etree.NewDocument()
+			newDoc.SetRoot(intf.Copy())
+			doc = newDoc
+		}
+	}
+
+	interfaces := doc.Root()
+
+	// STRICT VALIDATION: Fail if <interfaces> is completely missing
+	if interfaces == nil || interfaces.Tag != "interfaces" {
 		return fmt.Errorf("snapshot does not contain <interfaces>")
 	}
 
 	var interfaceElement *etree.Element
 
 	for _, intf := range interfaces.FindElements("interface") {
-
 		name := intf.FindElement("name")
-
 		if name == nil {
 			continue
 		}
-
 		if name.Text() == target.InterfaceName {
 			interfaceElement = intf
 			break
 		}
 	}
 
+	// STRICT VALIDATION: Fail if the specific interface doesn't exist on the device
 	if interfaceElement == nil {
-		return fmt.Errorf(
-			"interface %q not found in snapshot",
-			target.InterfaceName,
-		)
-	}
-
-	// Remove existing feature subtree.
-	if existing := interfaceElement.FindElement(feature.Container); existing != nil {
-		interfaceElement.RemoveChild(existing)
+		return fmt.Errorf("interface %q not found in snapshot", target.InterfaceName)
 	}
 
 	// Parse new feature subtree.
 	featureDoc := etree.NewDocument()
 
 	if err := featureDoc.ReadFromBytes(feature.XML); err != nil {
-		return fmt.Errorf(
-			"failed parsing feature XML: %w",
-			err,
-		)
+		return fmt.Errorf("failed parsing feature XML: %w", err)
 	}
 
 	if featureDoc.Root() == nil {
-		return fmt.Errorf(
-			"feature XML has no root element",
-		)
+		return fmt.Errorf("feature XML has no root element")
 	}
 
-	// Add the updated feature subtree.
-	interfaceElement.AddChild(
-		featureDoc.Root().Copy(),
-	)
+	featureRoot := featureDoc.Root()
+
+	// MERGE LOGIC: Deep merge for 'bridge-port', overwrite for everything else
+	if featureRoot.Tag == "bridge-port" {
+		existingBridgePort := interfaceElement.FindElement("bridge-port")
+		if existingBridgePort == nil {
+			interfaceElement.AddChild(featureRoot.Copy())
+		} else {
+			for _, child := range featureRoot.ChildElements() {
+				if existingChild := existingBridgePort.FindElement(child.Tag); existingChild != nil {
+					existingBridgePort.RemoveChild(existingChild)
+				}
+				existingBridgePort.AddChild(child.Copy())
+			}
+		}
+	} else {
+		if existing := interfaceElement.FindElement(feature.Container); existing != nil {
+			interfaceElement.RemoveChild(existing)
+		}
+		interfaceElement.AddChild(featureRoot.Copy())
+	}
 
 	// Store updated snapshot.
 	doc.Indent(2)
 
 	updatedXML, err := doc.WriteToBytes()
 	if err != nil {
-		return fmt.Errorf(
-			"failed serializing updated snapshot: %w",
-			err,
-		)
+		return fmt.Errorf("failed serializing updated snapshot: %w", err)
 	}
 
 	s.XML = updatedXML
@@ -152,6 +167,11 @@ func (b *NetconfBackend) AddPlugin(plugin plugins.Plugin) {
 func (b *NetconfBackend) Plugins() []plugins.Plugin {
 	return b.plugins
 }
+func (b *NetconfBackend) InitSnapshot(nodeName string, xmlBytes []byte) {
+	b.snapshots[nodeName] = &SnapshotSet[*NetconfSnapshot]{
+		Current: &NetconfSnapshot{XML: append([]byte(nil), xmlBytes...)},
+	}
+}
 
 func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *topology.Node) error {
 	logger := b.logger
@@ -167,7 +187,37 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 
 	snapshotSet, ok := b.snapshots[node.Name]
 	if !ok {
-		return fmt.Errorf("no snapshot exists for node %s", node.Name)
+		logger.Printf("No snapshot found for node %s. Auto-initializing baseline snapshot via NETCONF get-config...", node.Name)
+		var xmlBytes []byte
+
+		if node.ManagementInfo != nil && node.ManagementInfo.IpAddress != "" {
+			secret := os.Getenv("NETCONF_PASSWORD")
+			if secret == "" {
+				secret = node.ManagementInfo.UserName
+			}
+			session, err := managementSessions.CreateSession(
+				node.ManagementInfo.IpAddress,
+				node.ManagementInfo.UserName,
+				secret,
+			)
+			if err == nil {
+				rawXML, err := managementSessions.GetRunningConfig(session)
+				session.Close()
+				if err == nil && len(rawXML) > 0 {
+					logger.Printf("Successfully auto-initialized snapshot for node %s via NETCONF get-config (%d bytes)", node.Name, len(rawXML))
+					xmlBytes = []byte(rawXML)
+				} else {
+					b.logger.Warnf("[NETCONF Auto-Init Warning] NETCONF get-config for node %s (%s) failed: %v", node.Name, node.ManagementInfo.IpAddress, err)
+				}
+			} else {
+				b.logger.Warnf("[NETCONF Auto-Init Warning] NETCONF session for auto-initializing node %s (%s) failed: %v", node.Name, node.ManagementInfo.IpAddress, err)
+			}
+		}
+
+		snapshotSet = &SnapshotSet[*NetconfSnapshot]{
+			Current: &NetconfSnapshot{XML: xmlBytes},
+		}
+		b.snapshots[node.Name] = snapshotSet
 	}
 
 	//
@@ -177,13 +227,16 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 	snapshotSet.Working = snapshotSet.Current.Clone().(*NetconfSnapshot)
 
 	if snapshotSet.Working == nil {
-		return fmt.Errorf("failed creating working snapshot")
+		err := fmt.Errorf("failed creating working snapshot")
+		b.logger.Errorf("[NETCONF Prepare Failed] Node %s: %v", node.Name, err)
+		return err
 	}
 
 	modelName := node.DeviceInfo.GetDeviceModel()
 
 	nodeDeviceModel, err := storewrapper.GetDeviceModel(modelName)
 	if err != nil {
+		b.logger.Errorf("[NETCONF Prepare Failed] Failed to retrieve device model %q for node %s: %v", modelName, node.Name, err)
 		return fmt.Errorf(
 			"failed to retrieve device model %q: %w",
 			modelName,
@@ -200,10 +253,15 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 		logger.Printf("======================================================")
 		logger.Printf("Processing port %q", portConfig.PortId)
 
+		secret := os.Getenv("NETCONF_PASSWORD")
+		if secret == "" && node.ManagementInfo != nil {
+			secret = node.ManagementInfo.UserName
+		}
+
 		target := managementSessions.DeviceTarget{
 			InterfaceName: portConfig.PortId,
 			Logger:        logger,
-			Secret:        "",
+			Secret:        secret,
 			Info:          node.ManagementInfo,
 		}
 
@@ -255,10 +313,9 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 
 				fieldMsg, ok := f.Interface().(proto.Message)
 				if !ok {
-					return fmt.Errorf(
-						"field %q does not implement proto.Message",
-						fields[0],
-					)
+					err := fmt.Errorf("field %q does not implement proto.Message", fields[0])
+					b.logger.Errorf("[NETCONF Mapping Failed] Node %s port %s: %v", node.Name, target.InterfaceName, err)
+					return err
 				}
 
 				logger.Printf(
@@ -323,6 +380,7 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 
 			mapped, err := plugin.Map(input)
 			if err != nil {
+				b.logger.Errorf("[NETCONF Mapping Failed] Plugin %s failed on port %s for node %s: %v", plugin.Name(), target.InterfaceName, node.Name, err)
 				return fmt.Errorf(
 					"%s: %w",
 					plugin.Name(),
@@ -336,21 +394,20 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 			)
 
 			logger.Printf("  -> building feature XML")
-
 			featureXML, err := plugin.BuildFeatureXML(mapped)
-
 			if err != nil {
+				b.logger.Errorf("[NETCONF Feature XML Failed] Plugin %s failed building XML on port %s for node %s: %v", plugin.Name(), target.InterfaceName, node.Name, err)
 				return fmt.Errorf("%s: %w", plugin.Name(), err)
 			}
-
-			if err := snapshotSet.Working.Update(
-				featureXML,
-				target,
-			); err != nil {
+			if featureXML != nil && len(featureXML.XML) > 0 {
+				logger.Printf("  -> Generated feature XML for %s (%s):\n", plugin.Name(), target.InterfaceName)
+			}
+			if err := snapshotSet.Working.Update(featureXML, target); err != nil {
+				b.logger.Errorf("[NETCONF Snapshot Update Failed] Plugin %s update failed on port %s for node %s: %v", plugin.Name(), target.InterfaceName, node.Name, err)
 				return fmt.Errorf("failed to update snapshot: %w", err)
 			}
 
-			logger.Printf("  -> snapshot update successful")
+			logger.Printf("  -> snapshot updated for plugin %s (interface %s)", plugin.Name(), target.InterfaceName)
 		}
 
 		var unused []string
@@ -403,22 +460,22 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 func (b *NetconfBackend) Commit(target *topology.Node) error {
 
 	if target == nil {
-		return fmt.Errorf("Commit: node is nil")
+		err := fmt.Errorf("Commit: node is nil")
+		b.logger.Errorf("[NETCONF Commit Failed] %v", err)
+		return err
 	}
 
 	snapshotSet, ok := b.snapshots[target.Name]
 	if !ok {
-		return fmt.Errorf(
-			"no snapshot exists for node %s",
-			target.Name,
-		)
+		err := fmt.Errorf("no snapshot exists for node %s", target.Name)
+		b.logger.Errorf("[NETCONF Commit Failed] %v", err)
+		return err
 	}
 
 	if snapshotSet.Working == nil {
-		return fmt.Errorf(
-			"no working snapshot for node %s",
-			target.Name,
-		)
+		err := fmt.Errorf("no working snapshot for node %s", target.Name)
+		b.logger.Errorf("[NETCONF Commit Failed] %v", err)
+		return err
 	}
 
 	b.logger.Printf(
@@ -433,8 +490,10 @@ func (b *NetconfBackend) Commit(target *topology.Node) error {
 		snapshotSet.Working,
 		target,
 	); err != nil {
+		b.logger.Errorf("[NETCONF Commit Failed] Node %s: %v", target.Name, err)
 		return fmt.Errorf(
-			"commit failed: %w",
+			"commit failed for node %s: %w",
+			target.Name,
 			err,
 		)
 	}
@@ -457,22 +516,22 @@ func (b *NetconfBackend) Commit(target *topology.Node) error {
 func (b *NetconfBackend) Rollback(target *topology.Node) error {
 
 	if target == nil {
-		return fmt.Errorf("Rollback: node is nil")
+		err := fmt.Errorf("Rollback: node is nil")
+		b.logger.Errorf("[NETCONF Rollback Failed] %v", err)
+		return err
 	}
 
 	snapshotSet, ok := b.snapshots[target.Name]
 	if !ok {
-		return fmt.Errorf(
-			"no snapshot exists for node %s",
-			target.Name,
-		)
+		err := fmt.Errorf("no snapshot exists for node %s", target.Name)
+		b.logger.Errorf("[NETCONF Rollback Failed] %v", err)
+		return err
 	}
 
 	if snapshotSet.LastStable == nil {
-		return fmt.Errorf(
-			"no last stable snapshot for node %s",
-			target.Name,
-		)
+		err := fmt.Errorf("no last stable snapshot for node %s", target.Name)
+		b.logger.Errorf("[NETCONF Rollback Failed] %v", err)
+		return err
 	}
 
 	b.logger.Printf(
@@ -487,8 +546,10 @@ func (b *NetconfBackend) Rollback(target *topology.Node) error {
 		snapshotSet.LastStable,
 		target,
 	); err != nil {
+		b.logger.Errorf("[NETCONF Rollback Failed] Node %s: %v", target.Name, err)
 		return fmt.Errorf(
-			"rollback failed: %w",
+			"rollback failed for node %s: %w",
+			target.Name,
 			err,
 		)
 	}
@@ -509,31 +570,56 @@ func (b *NetconfBackend) Rollback(target *topology.Node) error {
 
 func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot, node *topology.Node) error {
 
+	if node == nil {
+		err := fmt.Errorf("node is nil")
+		b.logger.Errorf("[NETCONF Push Failed] %v", err)
+		return err
+	}
+
 	if snapshot == nil {
-		return fmt.Errorf("snapshot is nil")
+		err := fmt.Errorf("snapshot is nil for node %s", node.GetName())
+		b.logger.Errorf("[NETCONF Push Failed] %v", err)
+		return err
 	}
 
 	if len(snapshot.XML) == 0 {
-		return fmt.Errorf("snapshot XML is empty")
+		err := fmt.Errorf("snapshot XML is empty for node %s", node.GetName())
+		b.logger.Errorf("[NETCONF Push Failed] %v", err)
+		return err
 	}
+
+	secret := os.Getenv("NETCONF_PASSWORD")
+	if secret == "" && node.ManagementInfo != nil {
+		secret = node.ManagementInfo.UserName
+	}
+
+	ip := ""
+	user := ""
+	if node.ManagementInfo != nil {
+		ip = node.ManagementInfo.IpAddress
+		user = node.ManagementInfo.UserName
+	}
+
+	b.logger.Printf("Pushing consolidated configuration snapshot (%d bytes) to node %s (%s)...",
+		len(snapshot.XML), node.Name, ip)
 
 	session, err := managementSessions.CreateSession(
-		node.ManagementInfo.IpAddress,
-		node.ManagementInfo.UserName,
-		"",
+		ip,
+		user,
+		secret,
 	)
-
 	if err != nil {
-		return fmt.Errorf("NETCONF session failed: %w", err)
+		b.logger.Errorf("[NETCONF Session Failed] Node %s (%s): %v", node.Name, ip, err)
+		return fmt.Errorf("NETCONF session failed for node %s (%s): %w", node.Name, ip, err)
 	}
-
 	defer session.Close()
 
 	if err := managementSessions.EditConfig(
 		session,
 		string(snapshot.XML),
 	); err != nil {
-		return fmt.Errorf("failed pushing snapshot: %w", err)
+		b.logger.Errorf("[NETCONF EditConfig Failed] Node %s (%s) rejected RPC: %v", node.Name, ip, err)
+		return fmt.Errorf("failed pushing snapshot to node %s (%s): %w", node.Name, ip, err)
 	}
 
 	return nil
