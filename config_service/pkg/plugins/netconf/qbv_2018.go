@@ -104,7 +104,7 @@ func (p *OldQbvNetconfPlugin) Map(msg proto.Message) (any, error) {
 		},
 		AdminCycleTime: &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_GateParameterTable_AdminCycleTime{
 			Numerator:   ygot.Uint32(uint32(gcl.GetCycleTime())),
-			Denominator: ygot.Uint32(1000),
+			Denominator: ygot.Uint32(1000000000),
 		},
 		AdminControlList: &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_GateParameterTable_AdminControlList{
 			GateControlEntry: make(map[uint32]*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_GateParameterTable_AdminControlList_GateControlEntry),

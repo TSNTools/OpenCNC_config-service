@@ -58,28 +58,23 @@ func (p *QbvNetconfPlugin) SupportedFields(msg proto.Message) []string {
 }
 
 func (p *QbvNetconfPlugin) SupportedByDevice(model *devicemodelregistry.DeviceModel) bool {
-	requiredYangs := []devicemodelregistry.YangFile{
-		{
-			Name:     "ieee802-dot1q-sched.yang",
-			Revision: "2021-04-09",
-		},
-		{
-			Name:     "ieee802-dot1q-sched-bridge.yang",
-			Revision: "2021-04-09",
-		},
+	if model == nil {
+		return false
 	}
 
-	for i := range requiredYangs {
-		req := &requiredYangs[i]
-		found := false
+	requiredYangs := []devicemodelregistry.YangFile{
+		{Name: "ieee802-dot1q-sched.yang", Revision: "2021-04-09"},
+		{Name: "ieee802-dot1q-sched-bridge.yang", Revision: "2021-04-09"},
+	}
 
+	for _, req := range requiredYangs {
+		found := false
 		for _, yf := range model.YangFiles {
 			if yf.Name == req.Name && yf.Revision == req.Revision {
 				found = true
 				break
 			}
 		}
-
 		if !found {
 			return false
 		}
