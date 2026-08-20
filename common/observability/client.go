@@ -88,7 +88,19 @@ func (c *Client) Health(ctx context.Context, check string, status observabilityv
 
 	return c.publishEvent(ctx, event)
 }
+func (c *Client) Errorf(format string, args ...any) {
+	if c == nil {
+		return
+	}
+	_ = c.Log(context.Background(), observabilityv1.Severity_SEVERITY_ERROR, c.service, fmt.Sprintf(format, args...))
+}
 
+func (c *Client) Warnf(format string, args ...any) {
+	if c == nil {
+		return
+	}
+	_ = c.Log(context.Background(), observabilityv1.Severity_SEVERITY_WARN, c.service, fmt.Sprintf(format, args...))
+}
 func (c *Client) Log(ctx context.Context, severity observabilityv1.Severity, loggerName string, message string) error {
 	if c == nil {
 		return nil
@@ -212,6 +224,10 @@ func (c *Client) FatalF(format string, args ...any) {
 	os.Exit(1)
 }
 
+func (c *Client) Fatalf(format string, args ...any) {
+	c.FatalF(format, args...)
+}
+
 func (c *Client) publishEvent(ctx context.Context, event *observabilityv1.EventEnvelope) error {
 	if c == nil || event == nil {
 		return nil
@@ -267,6 +283,12 @@ func (c *Client) newBaseEnvelope(kind observabilityv1.EventKind, severity observ
 }
 
 func writeToCMD(reason string, event *observabilityv1.EventEnvelope) {
+	// ADDED: Nil safety check so local/offline runs don't crash
+	if event == nil {
+		fmt.Fprintf(os.Stdout, "[OBS-CMD: %s] <nil event>\n", reason)
+		return
+	}
+
 	var msg string
 
 	switch p := event.Payload.(type) {
@@ -291,7 +313,6 @@ func writeToCMD(reason string, event *observabilityv1.EventEnvelope) {
 
 	fmt.Fprintf(os.Stdout, "[OBS-CMD: %s] %s\n", reason, msg)
 }
-
 func parseEnvBool(key string, defaultValue bool) bool {
 	raw, exists := os.LookupEnv(key)
 	if !exists {

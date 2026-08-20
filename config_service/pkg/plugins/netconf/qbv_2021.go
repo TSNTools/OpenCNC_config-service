@@ -149,7 +149,9 @@ func (p *QbvNetconfPlugin) BuildFeatureXML(mapped any) (*plugins.FeatureXML, err
 
 	var buf bytes.Buffer
 	nsSched := "urn:ieee:std:802.1Q:yang:ieee802-dot1q-sched"
+	nsBridge := "urn:ieee:std:802.1Q:yang:ieee802-dot1q-bridge"
 
+	buf.WriteString(fmt.Sprintf(`<bridge-port xmlns="%s">`, nsBridge))
 	buf.WriteString(fmt.Sprintf(`<gate-parameter-table xmlns="%s">`, nsSched))
 
 	if root.GateEnabled != nil {
@@ -180,7 +182,6 @@ func (p *QbvNetconfPlugin) BuildFeatureXML(mapped any) (*plugins.FeatureXML, err
 			indices = append(indices, int(idx))
 		}
 		sort.Ints(indices)
-
 		buf.WriteString(`<admin-control-list>`)
 		for _, i := range indices {
 			entry := root.AdminControlList.GateControlEntry[uint32(i)]
@@ -197,8 +198,9 @@ func (p *QbvNetconfPlugin) BuildFeatureXML(mapped any) (*plugins.FeatureXML, err
 	}
 
 	buf.WriteString(`</gate-parameter-table>`)
+	buf.WriteString(`</bridge-port>`)
 
-	return &plugins.FeatureXML{Container: "gate-parameter-table", XML: buf.Bytes()}, nil
+	return &plugins.FeatureXML{Container: "bridge-port", XML: buf.Bytes()}, nil
 }
 
 func (p *QbvNetconfPlugin) Push(mapped any, target managementSessions.DeviceTarget) error {
@@ -233,14 +235,11 @@ func (p *QbvNetconfPlugin) wrapXML(featurexml *plugins.FeatureXML, target manage
 	var buf bytes.Buffer
 
 	nsIf := "urn:ietf:params:xml:ns:yang:ietf-interfaces"
-	nsBridge := "urn:ieee:std:802.1Q:yang:ieee802-dot1q-bridge"
 
 	buf.WriteString(fmt.Sprintf(`<interfaces xmlns="%s">`, nsIf))
 	buf.WriteString(`<interface>`)
 	buf.WriteString(fmt.Sprintf(`<name>%s</name>`, target.InterfaceName))
-	buf.WriteString(fmt.Sprintf(`<bridge-port xmlns="%s">`, nsBridge))
 	buf.WriteString(string(featurexml.XML))
-	buf.WriteString(`</bridge-port>`)
 	buf.WriteString(`</interface>`)
 	buf.WriteString(`</interfaces>`)
 
