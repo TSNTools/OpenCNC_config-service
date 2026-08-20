@@ -44,12 +44,20 @@ func CreateSession(host, user, pass string) (*netconf.Session, error) {
 	return session, nil
 }
 
-// getRunningConfig retrieves the <running> config using a <get-config> RPC.
-func GetRunningConfig(session *netconf.Session) (string, error) {
+// DefaultNetconfTimeout defines the default timeout in seconds for NETCONF SyncRPC calls.
+const DefaultNetconfTimeout int32 = 5
+
+// GetRunningConfig retrieves the <running> config using a <get-config> RPC.
+func GetRunningConfig(session *netconf.Session, timeoutSec ...int32) (string, error) {
+	timeout := DefaultNetconfTimeout
+	if len(timeoutSec) > 0 && timeoutSec[0] > 0 {
+		timeout = timeoutSec[0]
+	}
+
 	rpc := message.NewGetConfig(message.DatastoreRunning, "", "")
-	reply, err := session.SyncRPC(rpc, 5)
+	reply, err := session.SyncRPC(rpc, timeout)
 	if err != nil {
-		return "", fmt.Errorf("RPC failed: %w", err)
+		return "", fmt.Errorf("RPC failed (timeout: %ds): %w", timeout, err)
 	}
 
 	if reply == nil || reply.RawReply == "" {
@@ -59,8 +67,13 @@ func GetRunningConfig(session *netconf.Session) (string, error) {
 	return reply.RawReply, nil
 }
 
-// editConfig sends an <edit-config> RPC with the provided XML payload to the <running> datastore.
-func EditConfig(session *netconf.Session, xmlData string) error {
+// EditConfig sends an <edit-config> RPC with the provided XML payload to the <running> datastore.
+func EditConfig(session *netconf.Session, xmlData string, timeoutSec ...int32) error {
+	timeout := DefaultNetconfTimeout
+	if len(timeoutSec) > 0 && timeoutSec[0] > 0 {
+		timeout = timeoutSec[0]
+	}
+
 	//fmt.Printf("[NETCONF EditConfig] Sending XML Payload:\n%s\n", xmlData)
 	rpc := message.NewEditConfig(
 		message.DatastoreRunning,
@@ -69,9 +82,9 @@ func EditConfig(session *netconf.Session, xmlData string) error {
 	)
 
 	// fmt.Println(prettyPrintXML(xmlData))
-	reply, err := session.SyncRPC(rpc, 5)
+	reply, err := session.SyncRPC(rpc, timeout)
 	if err != nil {
-		return fmt.Errorf("edit-config RPC failed: %w", err)
+		return fmt.Errorf("edit-config RPC failed (timeout: %ds): %w", timeout, err)
 	}
 
 	if reply == nil || reply.RawReply == "" {

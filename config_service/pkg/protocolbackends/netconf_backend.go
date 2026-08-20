@@ -2,11 +2,15 @@ package protocolbackends
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"reflect"
+	"strings"
+	"sync"
 
 	"OpenCNC_config_service/common/observability"
 	storewrapper "OpenCNC_config_service/common/store-wrapper"
+	devicemodelregistry "OpenCNC_config_service/common/structures/devicemodelregistry"
 	"OpenCNC_config_service/common/structures/topology"
 	topology_config "OpenCNC_config_service/common/structures/topology_config"
 	"OpenCNC_config_service/config_service/pkg/managementSessions"
@@ -19,14 +23,20 @@ import (
 var _ ProtocolBackend = (*NetconfBackend)(nil)
 
 type NetconfSnapshot struct {
-	XML []byte // parsed model, cached payload, metadata...
-
+	XML     []byte // parsed model, cached payload, metadata...
+	Timeout int32  // timeout in seconds for NETCONF operations
+	Node    *Node  // optional reference to the associated node
+}
+type Node struct {
+	Name string
+	IP   string
 }
 
 func (s *NetconfSnapshot) Clone() Snapshot {
 	//todo: check it, this is a placeholder so far
 	return &NetconfSnapshot{
-		XML: append([]byte(nil), s.XML...),
+		XML:     append([]byte(nil), s.XML...),
+		Timeout: s.Timeout,
 	}
 }
 
@@ -136,6 +146,7 @@ func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, target managementS
 
 type NetconfBackend struct {
 	name      string
+	mu        sync.RWMutex
 	protocol  topology.ManagementProtocol
 	plugins   []plugins.Plugin
 	logger    observability.Logger
@@ -168,6 +179,11 @@ func (b *NetconfBackend) Plugins() []plugins.Plugin {
 	return b.plugins
 }
 func (b *NetconfBackend) InitSnapshot(nodeName string, xmlBytes []byte) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.snapshots == nil {
+		b.snapshots = make(map[string]*SnapshotSet[*NetconfSnapshot])
+	}
 	b.snapshots[nodeName] = &SnapshotSet[*NetconfSnapshot]{
 		Current: &NetconfSnapshot{XML: append([]byte(nil), xmlBytes...)},
 	}
@@ -185,7 +201,10 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 		return fmt.Errorf("PrepareSnapshot: nodeConfig is nil")
 	}
 
+	b.mu.RLock()
 	snapshotSet, ok := b.snapshots[node.Name]
+	b.mu.RUnlock()
+
 	if !ok {
 		logger.Printf("No snapshot found for node %s. Auto-initializing baseline snapshot via NETCONF get-config...", node.Name)
 		var xmlBytes []byte
@@ -214,10 +233,19 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 			}
 		}
 
-		snapshotSet = &SnapshotSet[*NetconfSnapshot]{
-			Current: &NetconfSnapshot{XML: xmlBytes},
+		b.mu.Lock()
+		if b.snapshots == nil {
+			b.snapshots = make(map[string]*SnapshotSet[*NetconfSnapshot])
 		}
-		b.snapshots[node.Name] = snapshotSet
+		if existing, exists := b.snapshots[node.Name]; exists && existing != nil && existing.Current != nil {
+			snapshotSet = existing
+		} else {
+			snapshotSet = &SnapshotSet[*NetconfSnapshot]{
+				Current: &NetconfSnapshot{XML: xmlBytes},
+			}
+			b.snapshots[node.Name] = snapshotSet
+		}
+		b.mu.Unlock()
 	}
 
 	//
@@ -243,6 +271,13 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 			err,
 		)
 	}
+
+	// Calculate custom timeout for 2018 device models based on GCL length and port count:
+	// formula: 5 + 0.03 * max_gcl_len * number_of_ports
+	timeout := CalculateNetconfTimeout(nodeConfig, nodeDeviceModel)
+	snapshotSet.Working.Timeout = timeout
+	logger.Printf("[NETCONF Timeout] Calculated commit timeout for node %s (%s): %ds (ports: %d)",
+		node.Name, modelName, timeout, len(nodeConfig.GetPortConfigs()))
 
 	for _, portConfig := range nodeConfig.PortConfigs {
 
@@ -464,8 +499,10 @@ func (b *NetconfBackend) Commit(target *topology.Node) error {
 		b.logger.Errorf("[NETCONF Commit Failed] %v", err)
 		return err
 	}
+	b.mu.RLock()
 
 	snapshotSet, ok := b.snapshots[target.Name]
+	b.mu.RUnlock()
 	if !ok {
 		err := fmt.Errorf("no snapshot exists for node %s", target.Name)
 		b.logger.Errorf("[NETCONF Commit Failed] %v", err)
@@ -520,8 +557,10 @@ func (b *NetconfBackend) Rollback(target *topology.Node) error {
 		b.logger.Errorf("[NETCONF Rollback Failed] %v", err)
 		return err
 	}
+	b.mu.RLock()
 
 	snapshotSet, ok := b.snapshots[target.Name]
+	b.mu.RUnlock()
 	if !ok {
 		err := fmt.Errorf("no snapshot exists for node %s", target.Name)
 		b.logger.Errorf("[NETCONF Rollback Failed] %v", err)
@@ -600,8 +639,13 @@ func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot, node *topology.
 		user = node.ManagementInfo.UserName
 	}
 
-	b.logger.Printf("Pushing consolidated configuration snapshot (%d bytes) to node %s (%s)...",
-		len(snapshot.XML), node.Name, ip)
+	timeout := snapshot.Timeout
+	if timeout <= 0 {
+		timeout = 5
+	}
+
+	b.logger.Printf("Pushing consolidated configuration snapshot (%d bytes, timeout %ds) to node %s (%s)...",
+		len(snapshot.XML), timeout, node.Name, ip)
 
 	session, err := managementSessions.CreateSession(
 		ip,
@@ -618,9 +662,63 @@ func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot, node *topology.
 		session,
 		string(snapshot.XML),
 	); err != nil {
-		b.logger.Errorf("[NETCONF EditConfig Failed] Node %s (%s) rejected RPC: %v", node.Name, ip, err)
+		b.logger.Errorf("[NETCONF EditConfig Failed] Node %s (%s) rejected RPC (timeout %ds): %v", node.Name, ip, timeout, err)
 		return fmt.Errorf("failed pushing snapshot to node %s (%s): %w", node.Name, ip, err)
 	}
 
 	return nil
+}
+
+// Is2018DeviceModel checks if the provided device model represents a 2018 TSN device model
+// (e.g. implementing ieee802-dot1q-sched.yang revision 2018-09-10).
+func Is2018DeviceModel(model *devicemodelregistry.DeviceModel) bool {
+	if model == nil {
+		return false
+	}
+	for _, yf := range model.YangFiles {
+		if yf.Name == "ieee802-dot1q-sched.yang" && (yf.Revision == "2018-09-10" || strings.HasPrefix(yf.Revision, "2018")) {
+			return true
+		}
+	}
+	return false
+}
+
+// CalculateNetconfTimeout computes the NETCONF timeout in seconds based on GCL length and port count:
+// For 2018 device models: timeout = 5 + 0.03 * max_gcl_len * number_of_ports
+// If different ports have different GCL lengths, the one with the maximum length is used.
+// Defaults to 5 seconds (or if non-2018 or no GCL configured).
+func CalculateNetconfTimeout(nodeConfig *topology_config.NodeConfig, model *devicemodelregistry.DeviceModel) int32 {
+	const defaultTimeout int32 = 5
+	if nodeConfig == nil || model == nil {
+		return defaultTimeout
+	}
+
+	if !Is2018DeviceModel(model) {
+		return defaultTimeout
+	}
+
+	maxGclLen := 0
+	numPorts := len(nodeConfig.GetPortConfigs())
+
+	for _, portConfig := range nodeConfig.GetPortConfigs() {
+		if portConfig == nil || portConfig.GetGcl() == nil {
+			continue
+		}
+		gclLen := len(portConfig.GetGcl().GetEntries())
+		if gclLen > maxGclLen {
+			maxGclLen = gclLen
+		}
+	}
+
+	if maxGclLen == 0 || numPorts == 0 {
+		return defaultTimeout
+	}
+
+	calculated := 5.0 + 0.03*float64(maxGclLen)*float64(numPorts)
+	timeout := int32(math.Ceil(calculated))
+	if timeout < defaultTimeout {
+		timeout = defaultTimeout
+	}
+
+	return timeout
 }

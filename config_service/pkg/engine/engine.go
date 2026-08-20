@@ -2,6 +2,10 @@ package engine
 
 import (
 	"fmt"
+	"os"
+	"runtime"
+	"strconv"
+	"sync"
 
 	"OpenCNC_config_service/common/observability"
 	"OpenCNC_config_service/common/structures/topology"
@@ -22,25 +26,68 @@ type ConfigurationTransaction struct {
 	Operations []Operation
 }
 
+// getMaxWorkers determines the concurrent worker limit based on CPU cores
+// or an optional MAX_WORKERS environment variable override.
+func getMaxWorkers() (int, error) {
+	maxWorkers := runtime.NumCPU() * 2
+
+	if envVal := os.Getenv("MAX_WORKERS"); envVal != "" {
+		parsedVal, err := strconv.Atoi(envVal)
+		if err != nil || parsedVal <= 0 {
+			return 0, fmt.Errorf("invalid MAX_WORKERS value: %q", envVal)
+		}
+		maxWorkers = parsedVal
+	}
+
+	if maxWorkers < 1 {
+		maxWorkers = 1
+	}
+
+	return maxWorkers, nil
+}
 func (t *ConfigurationTransaction) Commit() error {
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var commitErrs []error
+	maxWorkers, err := getMaxWorkers()
+	if err != nil {
+		return err
+	}
+
+	sem := make(chan struct{}, maxWorkers) // create the semaphore with the calculated limit
 
 	for i := range t.Operations {
 
 		op := &t.Operations[i]
-
-		if err := op.Backend.Commit(op.Node); err != nil {
-
-			// Roll back everything that was already committed.
-			t.Rollback()
-
-			return fmt.Errorf(
-				"commit failed for node %s, Aborted transaction and rolled back previous commits",
-				op.Node.Name,
-			)
+		if !op.Prepared {
+			continue
 		}
+		wg.Add(1)
+		// Acquire a token
+		sem <- struct{}{}
+		go func(idx int) {
+			defer wg.Done()
+			// Release the token when this goroutine is done
+			defer func() { <-sem }()
+			op := &t.Operations[idx]
+			if err := op.Backend.Commit(op.Node); err != nil {
+				errMu.Lock()
+				commitErrs = append(commitErrs, fmt.Errorf("node %s: %w", op.Node.Name, err))
+				errMu.Unlock()
+				return
+			}
+			op.Committed = true
+			op.Prepared = false
+		}(i)
+	}
+	wg.Wait()
 
-		op.Committed = true
-		op.Prepared = false
+	if len(commitErrs) > 0 {
+		rollbackErr := t.Rollback()
+		if rollbackErr != nil {
+			return fmt.Errorf("commit failed for %d nodes: %v. Failed to roll back previous commits", len(commitErrs), commitErrs)
+		}
+		return fmt.Errorf("commit failed for %d nodes: %v. Aborted transaction and rolled back previous commits", len(commitErrs), commitErrs)
 	}
 
 	return nil
@@ -48,7 +95,14 @@ func (t *ConfigurationTransaction) Commit() error {
 
 func (t *ConfigurationTransaction) Rollback() error {
 
-	var firstErr error
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var rollbackErrs []error
+	maxWorkers, err := getMaxWorkers()
+	if err != nil {
+		return err
+	}
+	sem := make(chan struct{}, maxWorkers) // create the semaphore with the calculated limit
 
 	for i := len(t.Operations) - 1; i >= 0; i-- {
 
@@ -57,35 +111,65 @@ func (t *ConfigurationTransaction) Rollback() error {
 		if !op.Committed {
 			continue
 		}
-
-		if err := op.Backend.Rollback(op.Node); err != nil {
-			if firstErr == nil {
-				firstErr = err
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			op := &t.Operations[idx]
+			if err := op.Backend.Rollback(op.Node); err != nil {
+				errMu.Lock()
+				rollbackErrs = append(rollbackErrs, fmt.Errorf("node %s: %w", op.Node.Name, err))
+				errMu.Unlock()
+				return
 			}
-			continue
-		}
-		op.Committed = false
+
+			op.Committed = false
+		}(i)
+	}
+	wg.Wait()
+
+	if len(rollbackErrs) > 0 {
+		return fmt.Errorf("rollback failed for %d nodes: %v", len(rollbackErrs), rollbackErrs)
 	}
 
-	return firstErr
+	return nil
 }
 
 func (t *ConfigurationTransaction) Prepare() error {
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var errs []error
+	maxWorkers, err := getMaxWorkers()
+	if err != nil {
+		return err
+	}
 
+	sem := make(chan struct{}, maxWorkers) //create the semaphore with the caluclated limit
 	for i := range t.Operations {
+		wg.Add(1)
+		// Acquire a token
+		sem <- struct{}{}
+		go func(idx int) {
+			defer wg.Done()
+			//release the token ehrn this goroutine is done
+			defer func() { <-sem }()
+			op := &t.Operations[idx]
+			//execcute the Netconf preparation for the node
+			if err := op.Backend.PrepareSnapshot(op.Config, op.Node); err != nil {
+				errMu.Lock()
+				errs = append(errs, fmt.Errorf("node %s: %w", op.Node.Name, err))
+				errMu.Unlock()
+				// return immediately so op,prepared is not set to true
+				return
+			}
+			op.Prepared = true
+		}(i)
+	}
+	wg.Wait()
 
-		op := &t.Operations[i]
-
-		if err := op.Backend.PrepareSnapshot(op.Config, op.Node); err != nil {
-
-			return fmt.Errorf(
-				"prepare failed for node %s: %w",
-				op.Node.Name,
-				err,
-			)
-		}
-
-		op.Prepared = true
+	if len(errs) > 0 {
+		return fmt.Errorf("prepare failed for %d nodes: %v", len(errs), errs)
 	}
 
 	return nil
