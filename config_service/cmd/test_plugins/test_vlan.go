@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	topology "OpenCNC_config_service/common/structures/topology"
@@ -14,12 +15,12 @@ import (
 
 func TestVlanPlugin_tttech() {
 	target := managementSessions.DeviceTarget{
-		InterfaceName: "sw0p3",
+		InterfaceName: "PORT_0",
 		Logger:        nil,
 		Secret:        "",
 		Info: &topology.ManagementInfo{
-			IpAddress:      "192.168.0.1",
-			UserName:       "root",
+			IpAddress:      "192.168.4.64",
+			UserName:       "sys-admin",
 			ManagementPort: 830,
 			Protocol:       topology.ManagementProtocol_NETCONF,
 		},
@@ -27,18 +28,58 @@ func TestVlanPlugin_tttech() {
 
 	pluginVlan := netconf.NewVlanNetconfPlugin(nil)
 
-	mapped, err := pluginVlan.Map(VlanConfig)
+	// 1. Bridge VLAN Configuration
+	fmt.Println("\n--- [1] Bridge VLAN Configuration ---")
+	mappedBridge, err := pluginVlan.Map(VlanConfig)
 	if err != nil {
-		log.Fatalf("Map failed: %v", err)
+		log.Fatalf("Bridge VLAN Map failed: %v", err)
 	}
+	bridgeFeatureXML, err := pluginVlan.BuildFeatureXML(mappedBridge)
+	if err != nil {
+		log.Fatalf("Bridge VLAN BuildFeatureXML failed: %v", err)
+	}
+	bridgePrettyXML := netconf.PrettyPrintXML(string(bridgeFeatureXML.XML))
+	fmt.Printf("/*******************************************************************************\n[VLAN] Generated Bridge Configuration XML (br0):\n%s\n*******************************************************************************/\n", bridgePrettyXML)
 
-	if err := pluginVlan.Push(mapped, target); err != nil {
-		log.Fatalf("Push failed: %v", err)
+	// 2. Port VLAN Configuration (sw0p3)
+	fmt.Println("\n--- [2] Port VLAN Configuration (sw0p3) ---")
+	mappedPort, err := pluginVlan.Map(PortConfig)
+	if err != nil {
+		log.Fatalf("Port VLAN Map failed: %v", err)
+	}
+	portFeatureXML, err := pluginVlan.BuildFeatureXML(mappedPort)
+	if err != nil {
+		log.Fatalf("Port VLAN BuildFeatureXML failed: %v", err)
+	}
+	portWrappedXML, err := pluginVlan.WrapXML(portFeatureXML, target)
+	if err != nil {
+		log.Fatalf("Port VLAN WrapXML failed: %v", err)
+	}
+	portPrettyXML := netconf.PrettyPrintXML(portWrappedXML)
+	fmt.Printf("/*******************************************************************************\n[VLAN] Generated Port Configuration XML (sw0p3):\n%s\n*******************************************************************************/\n", portPrettyXML)
+
+	// 3. Node VLAN Configuration
+	fmt.Println("\n--- [3] Node VLAN Configuration ---")
+	mappedNode, err := pluginVlan.Map(nodeConfig)
+	if err != nil {
+		log.Fatalf("Node VLAN Map failed: %v", err)
+	}
+	nodeFeatureXML, err := pluginVlan.BuildFeatureXML(mappedNode)
+	if err != nil {
+		log.Fatalf("Node VLAN BuildFeatureXML failed: %v", err)
+	}
+	nodePrettyXML := netconf.PrettyPrintXML(string(nodeFeatureXML.XML))
+	fmt.Printf("/*******************************************************************************\n[VLAN] Generated Node Configuration XML:\n%s\n*******************************************************************************/\n", nodePrettyXML)
+
+	// 4. Attempt Push (optional / device live test)
+	fmt.Println("\n--- [4] Pushing Bridge VLAN Config to Device (192.168.4.64) ---")
+	if err := pluginVlan.Push(mappedBridge, target); err != nil {
+		log.Printf("Push skipped / failed (expected if device is offline): %v", err)
 	}
 }
 
 var PortConfig = &topology_config.PortConfig{
-	PortId:        "sw0p3",
+	PortId:        "PORT_0",
 	DefaultVlanId: proto.Uint32(30),
 	VlanMemberships: []*vlan.VlanMembership{
 		{VlanId: 10, Tagged: true},
@@ -72,12 +113,12 @@ var VlanConfig = &vlan.BridgeVlanConfig{
 			EntryType:  vlan.VlanRegistrationEntryType_VLAN_REG_ENTRY_TYPE_STATIC,
 			PortMaps: []*vlan.VlanPortMap{
 				{
-					PortId:                "sw0p3",
+					PortId:                "PORT_0",
 					RegistrarAdminControl: vlan.RegistrarAdminControl_REGISTRAR_ADMIN_CONTROL_NORMAL,
 					VlanTransmitted:       vlan.VlanTransmitted_VLAN_TRANSMITTED_TAGGED,
 				},
 				{
-					PortId:                "sw0p4",
+					PortId:                "PORT_1",
 					RegistrarAdminControl: vlan.RegistrarAdminControl_REGISTRAR_ADMIN_CONTROL_NORMAL,
 					VlanTransmitted:       vlan.VlanTransmitted_VLAN_TRANSMITTED_TAGGED,
 				},
@@ -91,5 +132,12 @@ var VlanConfig = &vlan.BridgeVlanConfig{
 	},
 }
 
-var Bridge = &topology_config.BridgeConfig{VlanConfig: VlanConfig}
-var nodeConfig = &topology_config.NodeConfig{Bridge: Bridge, PortConfigs: []*topology_config.PortConfig{PortConfig}}
+var Bridge = &topology_config.BridgeConfig{
+	BridgeName:    proto.String("SWITCH"),
+	ComponentName: proto.String("SWITCH"),
+	VlanConfig:    VlanConfig,
+}
+var nodeConfig = &topology_config.NodeConfig{
+	NodeId:      "SWITCH",
+	Bridge:      Bridge,
+	PortConfigs: []*topology_config.PortConfig{PortConfig}}
