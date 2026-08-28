@@ -3,17 +3,18 @@ module OpenCNC_config_service
 go 1.24.5
 
 require (
+	github.com/beevik/etree v1.7.0
 	github.com/golang/protobuf v1.5.4
 	github.com/openconfig/goyang v1.6.3
 	github.com/openconfig/ygot v0.33.0
 	github.com/openshift-telco/go-netconf-client v1.0.7-0.20250622223901-16f0c2204192
+	github.com/segmentio/kafka-go v0.4.47
 	golang.org/x/crypto v0.40.0
 	google.golang.org/protobuf v1.36.6
 )
 
 require (
 	github.com/Shopify/sarama v1.38.1 // indirect
-	github.com/beevik/etree v1.7.0 // indirect
 	github.com/eapache/go-resiliency v1.3.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230111030713-bf00bc1b83b6 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
@@ -37,7 +38,6 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
-	github.com/segmentio/kafka-go v0.4.47 // indirect
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
@@ -67,7 +67,7 @@ require (
 	git.cs.kau.se/hamzchah/opencnc_kafka-exporter/logger v0.0.0-20230914104133-72a7039493d7
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/gogo/protobuf v1.3.2
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
 	go.etcd.io/etcd/api/v3 v3.6.4 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.6.4 // indirect

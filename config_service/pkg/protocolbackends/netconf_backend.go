@@ -41,43 +41,68 @@ func (s *NetconfSnapshot) Clone() Snapshot {
 }
 
 func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, target managementSessions.DeviceTarget) error {
-
 	if feature == nil {
 		return fmt.Errorf("feature XML is nil")
 	}
-
 	if len(feature.XML) == 0 {
 		return fmt.Errorf("feature XML is empty")
 	}
-
 	if len(s.XML) == 0 {
 		return fmt.Errorf("snapshot XML is empty")
 	}
 
 	doc := etree.NewDocument()
-
 	if err := doc.ReadFromBytes(s.XML); err != nil {
 		return fmt.Errorf("failed parsing snapshot XML: %w", err)
 	}
 
-	// Sanitize: If wrapped in <rpc-reply><data>, extract the <interfaces> block
-	if doc.Root() != nil && doc.Root().Tag != "interfaces" {
+	// 1. SANITIZE: Extract <interfaces> and <bridges> if wrapped in <rpc-reply><data>
+	// We use AddChild directly on the doc so it acts as a fragment holding both elements.
+	if doc.Root() != nil && doc.Root().Tag != "interfaces" && doc.Root().Tag != "bridges" {
+		newDoc := etree.NewDocument()
 		if intf := doc.FindElement("//interfaces"); intf != nil {
-			newDoc := etree.NewDocument()
-			newDoc.SetRoot(intf.Copy())
+			newDoc.AddChild(intf.Copy())
+		}
+		if br := doc.FindElement("//bridges"); br != nil {
+			newDoc.AddChild(br.Copy())
+		}
+		if len(newDoc.ChildElements()) > 0 {
 			doc = newDoc
 		}
 	}
 
-	interfaces := doc.Root()
+	// 2. PARSE NEW FEATURE
+	featureDoc := etree.NewDocument()
+	if err := featureDoc.ReadFromBytes(feature.XML); err != nil {
+		return fmt.Errorf("failed parsing feature XML: %w", err)
+	}
+	if featureDoc.Root() == nil {
+		return fmt.Errorf("feature XML has no root element")
+	}
+	featureRoot := featureDoc.Root()
 
-	// STRICT VALIDATION: Fail if <interfaces> is completely missing
-	if interfaces == nil || interfaces.Tag != "interfaces" {
+	// =========================================================================
+	// 3. HANDLE BRIDGE UPDATES FIRST
+	// =========================================================================
+	if featureRoot.Tag == "bridges" {
+		if existingBridges := doc.FindElement("//bridges"); existingBridges != nil {
+			doc.RemoveChild(existingBridges)
+		}
+		doc.AddChild(featureRoot.Copy())
+		doc.Indent(2)
+		s.XML, _ = doc.WriteToBytes()
+		return nil
+	}
+
+	// =========================================================================
+	// 4. HANDLE INTERFACE UPDATES SECOND
+	// =========================================================================
+	interfaces := doc.FindElement("//interfaces")
+	if interfaces == nil {
 		return fmt.Errorf("snapshot does not contain <interfaces>")
 	}
 
 	var interfaceElement *etree.Element
-
 	for _, intf := range interfaces.FindElements("interface") {
 		name := intf.FindElement("name")
 		if name == nil {
@@ -89,23 +114,10 @@ func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, target managementS
 		}
 	}
 
-	// STRICT VALIDATION: Fail if the specific interface doesn't exist on the device
+	// STRICT VALIDATION: Fail if the specific interface doesn't exist
 	if interfaceElement == nil {
 		return fmt.Errorf("interface %q not found in snapshot", target.InterfaceName)
 	}
-
-	// Parse new feature subtree.
-	featureDoc := etree.NewDocument()
-
-	if err := featureDoc.ReadFromBytes(feature.XML); err != nil {
-		return fmt.Errorf("failed parsing feature XML: %w", err)
-	}
-
-	if featureDoc.Root() == nil {
-		return fmt.Errorf("feature XML has no root element")
-	}
-
-	featureRoot := featureDoc.Root()
 
 	// MERGE LOGIC: Deep merge for 'bridge-port', overwrite for everything else
 	if featureRoot.Tag == "bridge-port" {
@@ -129,14 +141,12 @@ func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, target managementS
 
 	// Store updated snapshot.
 	doc.Indent(2)
-
 	updatedXML, err := doc.WriteToBytes()
 	if err != nil {
 		return fmt.Errorf("failed serializing updated snapshot: %w", err)
 	}
 
 	s.XML = updatedXML
-
 	return nil
 }
 
@@ -215,8 +225,7 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 				secret = node.ManagementInfo.UserName
 			}
 			session, err := managementSessions.CreateSession(
-				node.ManagementInfo.IpAddress,
-				node.ManagementInfo.UserName,
+				node.ManagementInfo.IpAddress, node.ManagementInfo.UserName,
 				secret,
 			)
 			if err == nil {
@@ -279,6 +288,68 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 	logger.Printf("[NETCONF Timeout] Calculated commit timeout for node %s (%s): %ds (ports: %d)",
 		node.Name, modelName, timeout, len(nodeConfig.GetPortConfigs()))
 
+	// =========================================================================
+	// NEW: Process Bridge-level configuration (e.g. VLAN database) FIRST
+	// =========================================================================
+	if nodeConfig.Bridge != nil {
+		logger.Printf("======================================================")
+		logger.Printf("Processing Bridge Configuration for node %s", node.Name)
+
+		secret := os.Getenv("NETCONF_PASSWORD")
+		if secret == "" && node.ManagementInfo != nil {
+			secret = node.ManagementInfo.UserName
+		}
+
+		bridgeTarget := managementSessions.DeviceTarget{
+			InterfaceName: nodeConfig.Bridge.GetBridgeName(),
+			Logger:        logger,
+			Secret:        secret,
+			Info:          node.ManagementInfo,
+		}
+
+		for _, plugin := range b.plugins {
+			if !plugin.SupportedByDevice(nodeDeviceModel) {
+				continue
+			}
+
+			fields := plugin.SupportedFields(nodeConfig.Bridge)
+			if len(fields) == 0 {
+				continue
+			}
+
+			logger.Printf("Plugin %-20s : mapping Bridge Config", plugin.Name())
+			mapped, err := plugin.Map(nodeConfig.Bridge)
+			if err != nil {
+				b.logger.Errorf("[NETCONF Mapping Failed] Plugin %s failed on bridge for node %s: %v", plugin.Name(), node.Name, err)
+				return fmt.Errorf("%s: %w", plugin.Name(), err)
+			}
+
+			featureXML, err := plugin.BuildFeatureXML(mapped)
+			if err != nil {
+				b.logger.Errorf("[NETCONF Feature XML Failed] Plugin %s failed building XML on bridge for node %s: %v", plugin.Name(), node.Name, err)
+				return fmt.Errorf("%s: %w", plugin.Name(), err)
+			}
+
+			if featureXML != nil && len(featureXML.XML) > 0 {
+				doc := etree.NewDocument()
+				prettyXML := string(featureXML.XML)
+				if err := doc.ReadFromBytes(featureXML.XML); err == nil {
+					doc.Indent(2)
+					if formatted, err := doc.WriteToString(); err == nil {
+						prettyXML = formatted
+					}
+				}
+				logger.Printf("\n/*******************************************************************************\n[%s] Generated Feature XML for Bridge (%s):\n%s\n*******************************************************************************/", plugin.FeatureName(), plugin.Name(), prettyXML)
+
+				if err := snapshotSet.Working.Update(featureXML, bridgeTarget); err != nil {
+					b.logger.Errorf("[NETCONF Snapshot Update Failed] Plugin %s update failed on bridge for node %s: %v", plugin.Name(), node.Name, err)
+					return fmt.Errorf("failed to update snapshot with bridge data: %w", err)
+				}
+				logger.Printf("  -> snapshot updated for plugin %s (Bridge)", plugin.Name())
+			}
+		}
+	}
+	// =========================================================================
 	for _, portConfig := range nodeConfig.PortConfigs {
 
 		if portConfig == nil {
@@ -435,7 +506,15 @@ func (b *NetconfBackend) PrepareSnapshot(msg *topology_config.NodeConfig, node *
 				return fmt.Errorf("%s: %w", plugin.Name(), err)
 			}
 			if featureXML != nil && len(featureXML.XML) > 0 {
-				logger.Printf("  -> Generated feature XML for %s (%s):\n", plugin.Name(), target.InterfaceName)
+				doc := etree.NewDocument()
+				prettyXML := string(featureXML.XML)
+				if err := doc.ReadFromBytes(featureXML.XML); err == nil {
+					doc.Indent(2)
+					if formatted, err := doc.WriteToString(); err == nil {
+						prettyXML = formatted
+					}
+				}
+				logger.Printf("\n/*******************************************************************************\n[%s] Generated Feature XML for %s (%s):\n%s\n*******************************************************************************/", plugin.FeatureName(), plugin.Name(), target.InterfaceName, prettyXML)
 			}
 			if err := snapshotSet.Working.Update(featureXML, target); err != nil {
 				b.logger.Errorf("[NETCONF Snapshot Update Failed] Plugin %s update failed on port %s for node %s: %v", plugin.Name(), target.InterfaceName, node.Name, err)

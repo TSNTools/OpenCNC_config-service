@@ -15,6 +15,7 @@ import (
 	managementSessions "OpenCNC_config_service/config_service/pkg/managementSessions"
 	"OpenCNC_config_service/config_service/pkg/plugins"
 
+	"github.com/beevik/etree"
 	"github.com/golang/protobuf/proto"
 	"github.com/openconfig/ygot/ygot"
 )
@@ -118,20 +119,32 @@ func (v *VlanNetconfPlugin) Map(msg proto.Message) (any, error) {
 		if typed.GetVlanConfig() == nil || !hasBridgeVlanData(typed.GetVlanConfig()) {
 			return nil, fmt.Errorf("VlanNetconfPlugin: BridgeConfig has no VLAN config data")
 		}
+		bName := typed.GetBridgeName()
+		if bName == "" {
+			bName = "br0"
+		}
+		cNmae := typed.GetComponentName()
+		if cNmae == "" {
+			cNmae = bName
+		}
 		return &bridgeVlanPayload{
-			BridgeName:    "br0",
-			ComponentName: "br0",
+			BridgeName:    bName,
+			ComponentName: cNmae,
 			Config:        typed.GetVlanConfig(),
 		}, nil
 	case *topology_config.NodeConfig:
 		if typed.GetBridge() != nil && typed.GetBridge().GetVlanConfig() != nil && hasBridgeVlanData(typed.GetBridge().GetVlanConfig()) {
-			name := typed.GetNodeId()
-			if name == "" {
-				name = "br0"
+			bName := typed.GetBridge().GetBridgeName()
+			if bName == "" {
+				bName = "br0"
+			}
+			cName := typed.GetBridge().GetComponentName()
+			if cName == "" {
+				cName = bName
 			}
 			return &bridgeVlanPayload{
-				BridgeName:    name,
-				ComponentName: name,
+				BridgeName:    bName,
+				ComponentName: cName,
 				Config:        typed.GetBridge().GetVlanConfig(),
 			}, nil
 		}
@@ -148,10 +161,12 @@ func (v *VlanNetconfPlugin) Map(msg proto.Message) (any, error) {
 
 func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort {
 	bridgePort := &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort{}
+
 	if portCfg.DefaultVlanId != nil {
 		bridgePort.Pvid = portCfg.DefaultVlanId
 	}
 
+	// 1. Basic VLAN Memberships
 	if len(portCfg.GetVlanMemberships()) > 0 {
 		bridgePort.VidTranslations = make(map[uint16]*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_VidTranslations)
 		for _, membership := range portCfg.GetVlanMemberships() {
@@ -159,12 +174,16 @@ func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncMode
 				continue
 			}
 			localVid := uint16(membership.GetVlanId())
+
+			// FIX: Populate both LocalVid and RelayVid to satisfy the IEEE schema
 			bridgePort.VidTranslations[localVid] = &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_VidTranslations{
 				LocalVid: &localVid,
+				RelayVid: &localVid,
 			}
 		}
 	}
 
+	// 2. Advanced VLAN Configuration
 	if adv := portCfg.GetVlanAdvanced(); adv != nil {
 		if adv.AcceptableFrame != nil {
 			bridgePort.AcceptableFrame = acceptableFrameToYANGModel(*adv.AcceptableFrame)
@@ -182,6 +201,7 @@ func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncMode
 			bridgePort.EnableEgressVidTranslationTable = adv.EgressVidTranslationTableEnabled
 		}
 
+		// Ingress VID Translations
 		if len(adv.GetVidTranslations()) > 0 && bridgePort.VidTranslations == nil {
 			bridgePort.VidTranslations = make(map[uint16]*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_VidTranslations)
 		}
@@ -190,16 +210,24 @@ func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncMode
 				continue
 			}
 			localVid := uint16(translation.GetLocalVid())
+			relayVid := uint16(translation.GetRelayVid())
+
+			// FIX: Safety fallback. If RelayVid was left empty/0 in the payload,
+			// it will crash the switch. Fall back to localVid.
+			if relayVid == 0 {
+				relayVid = localVid
+			}
+
 			entry, exists := bridgePort.VidTranslations[localVid]
 			if !exists {
 				entry = &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_VidTranslations{}
 				bridgePort.VidTranslations[localVid] = entry
 			}
 			entry.LocalVid = &localVid
-			relayVid := uint16(translation.GetRelayVid())
 			entry.RelayVid = &relayVid
 		}
 
+		// Egress VID Translations
 		if len(adv.GetEgressVidTranslations()) > 0 {
 			bridgePort.EgressVidTranslations = make(map[uint16]*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_EgressVidTranslations)
 			for _, translation := range adv.GetEgressVidTranslations() {
@@ -207,15 +235,22 @@ func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncMode
 					continue
 				}
 				relayVid := uint16(translation.GetRelayVid())
+				localVid := uint16(translation.GetLocalVid())
+
+				// FIX: Same safety fallback for egress
+				if localVid == 0 {
+					localVid = relayVid
+				}
+
 				entry := &opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_EgressVidTranslations{
 					RelayVid: &relayVid,
+					LocalVid: &localVid,
 				}
-				localVid := uint16(translation.GetLocalVid())
-				entry.LocalVid = &localVid
 				bridgePort.EgressVidTranslations[relayVid] = entry
 			}
 		}
 
+		// Protocol Group VID Sets
 		if len(adv.GetProtocolGroupVidSets()) > 0 {
 			bridgePort.ProtocolBasedVlanClassification = ygot.Bool(true)
 			bridgePort.ProtocolGroupVidSet = make(map[uint32]*opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_ProtocolGroupVidSet)
@@ -238,6 +273,21 @@ func mapPortConfigToBridgePort(portCfg *topology_config.PortConfig) *opencncMode
 	return bridgePort
 }
 
+// PrettyPrintXML formats an XML string with indentation (2 spaces).
+// If formatting fails (e.g. invalid XML), it returns the original xmlData.
+func PrettyPrintXML(xmlData string) string {
+	doc := etree.NewDocument()
+	if err := doc.ReadFromString(xmlData); err != nil {
+		return xmlData
+	}
+	doc.Indent(2)
+	formatted, err := doc.WriteToString()
+	if err != nil {
+		return xmlData
+	}
+	return formatted
+}
+
 func (v *VlanNetconfPlugin) Push(mapped any, target managementSessions.DeviceTarget) error {
 	featurexml, err := v.BuildFeatureXML(mapped)
 	if err != nil {
@@ -256,6 +306,20 @@ func (v *VlanNetconfPlugin) Push(mapped any, target managementSessions.DeviceTar
 		}
 	}
 
+	label := target.InterfaceName
+	if payload, ok := mapped.(*bridgeVlanPayload); ok {
+		label = payload.BridgeName
+	}
+
+	prettyXML := PrettyPrintXML(xml)
+	banner := fmt.Sprintf("/*******************************************************************************\n[VLAN] Generated XML Configuration for %s:\n%s\n*******************************************************************************/", label, prettyXML)
+
+	// Print to stdout and logger once generated
+	fmt.Println(banner)
+	if v.logger != nil {
+		v.logger.Printf("\n%s\n", banner)
+	}
+
 	if target.Info == nil {
 		return fmt.Errorf("device target info is nil")
 	}
@@ -266,34 +330,29 @@ func (v *VlanNetconfPlugin) Push(mapped any, target managementSessions.DeviceTar
 	}
 	defer session.Close()
 
-	pushXML := func(xml string, label string) error {
-		if v.logger != nil {
-			v.logger.Printf("[VLAN] XML generated for %s:\n%s", label, xml)
-		}
-		if err := managementSessions.EditConfig(session, xml); err != nil {
-			return fmt.Errorf("edit-config failed for %s: %w", label, err)
-		}
-		return nil
+	if err := managementSessions.EditConfig(session, xml); err != nil {
+		return fmt.Errorf("edit-config failed for %s: %w", label, err)
 	}
 
-	label := target.InterfaceName
-	if payload, ok := mapped.(*bridgeVlanPayload); ok {
-		label = payload.BridgeName
-	}
-
-	return pushXML(xml, label)
+	return nil
 }
 
 func (v *VlanNetconfPlugin) BuildFeatureXML(mapped any) (*plugins.FeatureXML, error) {
 	switch typed := mapped.(type) {
 	case *opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort:
-		return v.buildBridgePortFeatureXML(typed)
+		feat, err := v.buildBridgePortFeatureXML(typed)
+		if err != nil {
+			return nil, err
+		}
+		feat.XML = []byte(PrettyPrintXML(string(feat.XML)))
+		return feat, nil
 	case *bridgeVlanPayload:
 		xml, err := v.buildBridgeVlanXML(typed)
 		if err != nil {
 			return nil, err
 		}
-		return &plugins.FeatureXML{Container: "bridges", XML: xml}, nil
+		pretty := PrettyPrintXML(string(xml))
+		return &plugins.FeatureXML{Container: "bridges", XML: []byte(pretty)}, nil
 	default:
 		return nil, fmt.Errorf("VlanNetconfPlugin: invalid mapped type %T", mapped)
 	}
@@ -304,9 +363,19 @@ func (v *VlanNetconfPlugin) buildBridgeVlanXML(payload *bridgeVlanPayload) ([]by
 		return nil, fmt.Errorf("VlanNetconfPlugin: nil bridge VLAN payload")
 	}
 
+	// 1. Collect unique VLAN IDs from the registration entries
+	vlanIDs := make(map[uint32]struct{})
+	for _, reg := range payload.Config.GetVlanRegistrationEntries() {
+		if reg != nil {
+			for _, vid := range reg.GetVlanIds() {
+				vlanIDs[vid] = struct{}{}
+			}
+		}
+	}
+
 	bridgeName := payload.BridgeName
 	if bridgeName == "" {
-		bridgeName = "br0"
+		bridgeName = "SWITCH"
 	}
 	componentName := payload.ComponentName
 	if componentName == "" {
@@ -314,14 +383,49 @@ func (v *VlanNetconfPlugin) buildBridgeVlanXML(payload *bridgeVlanPayload) ([]by
 	}
 
 	var buf bytes.Buffer
+
+	// ---------------------------------------------------------
+	// STEP 1: Open the bridge tags
+	// ---------------------------------------------------------
 	buf.WriteString(`<bridges xmlns="urn:ieee:std:802.1Q:yang:ieee802-dot1q-bridge">`)
 	buf.WriteString(`<bridge>`)
 	buf.WriteString(fmt.Sprintf(`<name>%s</name>`, bridgeName))
 	buf.WriteString(`<component>`)
 	buf.WriteString(fmt.Sprintf(`<name>%s</name>`, componentName))
 
+	// ---------------------------------------------------------
+	// STEP 2: Instantiate VLANs FIRST inside <component>
+	// ---------------------------------------------------------
+	if len(vlanIDs) > 0 || len(payload.Config.GetVidToFidMappings()) > 0 {
+		buf.WriteString(`<bridge-vlan>`)
+
+		// Write the <vlan> names to instantiate them
+		for vid := range vlanIDs {
+			buf.WriteString(`<vlan>`)
+			buf.WriteString(fmt.Sprintf(`<vid>%d</vid>`, vid))
+			buf.WriteString(fmt.Sprintf(`<name>VLAN_%d</name>`, vid))
+			buf.WriteString(`</vlan>`)
+		}
+
+		// Write the fid mappings
+		for _, m := range payload.Config.GetVidToFidMappings() {
+			if m != nil {
+				buf.WriteString(`<vid-to-fid>`)
+				buf.WriteString(fmt.Sprintf(`<vid>%d</vid>`, m.GetVid()))
+				buf.WriteString(fmt.Sprintf(`<fid>%d</fid>`, m.GetFid()))
+				buf.WriteString(`</vid-to-fid>`)
+			}
+		}
+
+		buf.WriteString(`</bridge-vlan>`)
+	}
+
+	// ---------------------------------------------------------
+	// STEP 3: Write Filtering Database SECOND inside <component>
+	// ---------------------------------------------------------
 	if len(payload.Config.GetVlanRegistrationEntries()) > 0 {
 		buf.WriteString(`<filtering-database>`)
+
 		for _, reg := range payload.Config.GetVlanRegistrationEntries() {
 			if reg == nil {
 				continue
@@ -336,9 +440,9 @@ func (v *VlanNetconfPlugin) buildBridgeVlanXML(payload *bridgeVlanPayload) ([]by
 				if pm == nil {
 					continue
 				}
-
 				buf.WriteString(`<port-map>`)
-				buf.WriteString(fmt.Sprintf(`<port-ref>%d</port-ref>`, portRefFromPortID(pm.GetPortId())))
+
+				buf.WriteString(fmt.Sprintf(`<port-ref>%d</port-ref>`, portRefFromPortID(pm.GetPortId())+1)) //PORT_0 as 1
 				buf.WriteString(`<static-vlan-registration-entries>`)
 				buf.WriteString(fmt.Sprintf(`<registrar-admin-control>%s</registrar-admin-control>`, registrarAdminControlToXML(pm.GetRegistrarAdminControl())))
 				buf.WriteString(fmt.Sprintf(`<vlan-transmitted>%s</vlan-transmitted>`, vlanTransmittedToXML(pm.GetVlanTransmitted())))
@@ -348,23 +452,13 @@ func (v *VlanNetconfPlugin) buildBridgeVlanXML(payload *bridgeVlanPayload) ([]by
 
 			buf.WriteString(`</vlan-registration-entry>`)
 		}
+
 		buf.WriteString(`</filtering-database>`)
 	}
 
-	if len(payload.Config.GetVidToFidMappings()) > 0 {
-		buf.WriteString(`<bridge-vlan>`)
-		for _, m := range payload.Config.GetVidToFidMappings() {
-			if m == nil {
-				continue
-			}
-			buf.WriteString(`<vid-to-fid>`)
-			buf.WriteString(fmt.Sprintf(`<vid>%d</vid>`, m.GetVid()))
-			buf.WriteString(fmt.Sprintf(`<fid>%d</fid>`, m.GetFid()))
-			buf.WriteString(`</vid-to-fid>`)
-		}
-		buf.WriteString(`</bridge-vlan>`)
-	}
-
+	// ---------------------------------------------------------
+	// STEP 4: Close the bridge tags
+	// ---------------------------------------------------------
 	buf.WriteString(`</component>`)
 	buf.WriteString(`</bridge>`)
 	buf.WriteString(`</bridges>`)
@@ -453,6 +547,10 @@ func (v *VlanNetconfPlugin) buildBridgePortFeatureXML(root *opencncModel.IETFInt
 	return &plugins.FeatureXML{Container: "bridge-port", XML: buf.Bytes()}, nil
 }
 
+func (v *VlanNetconfPlugin) WrapXML(featurexml *plugins.FeatureXML, target managementSessions.DeviceTarget) (string, error) {
+	return v.wrapXML(featurexml, target)
+}
+
 func (v *VlanNetconfPlugin) wrapXML(featurexml *plugins.FeatureXML, target managementSessions.DeviceTarget) (string, error) {
 	var buf bytes.Buffer
 
@@ -463,7 +561,7 @@ func (v *VlanNetconfPlugin) wrapXML(featurexml *plugins.FeatureXML, target manag
 	buf.WriteString(`</interface>`)
 	buf.WriteString(`</interfaces>`)
 
-	return buf.String(), nil
+	return PrettyPrintXML(buf.String()), nil
 }
 
 func acceptableFrameToYANGModel(vf vlan.AcceptableFrameType) opencncModel.E_IETFInterfaces_Interfaces_Interface_BridgePort_AcceptableFrame {
@@ -482,11 +580,11 @@ func acceptableFrameToYANGModel(vf vlan.AcceptableFrameType) opencncModel.E_IETF
 func acceptableFrameToXML(vf opencncModel.E_IETFInterfaces_Interfaces_Interface_BridgePort_AcceptableFrame) string {
 	switch vf {
 	case opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_AcceptableFrame_admit_only_VLAN_tagged_frames:
-		return "admit_only_VLAN_tagged_frames"
+		return "admit-only-VLAN-tagged-frames"
 	case opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_AcceptableFrame_admit_only_untagged_and_priority_tagged:
-		return "admit_only_untagged_and_priority_tagged"
+		return "admit-only-untagged-and-priority-tagged"
 	case opencncModel.IETFInterfaces_Interfaces_Interface_BridgePort_AcceptableFrame_admit_all_frames:
-		return "admit_all_frames"
+		return "admit-all-frames"
 	default:
 		return ""
 	}
