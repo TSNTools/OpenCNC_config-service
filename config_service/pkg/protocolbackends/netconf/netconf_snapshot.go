@@ -22,91 +22,124 @@ func (s *NetconfSnapshot) Clone() protocolbackends.Snapshot {
 }
 
 func (s *NetconfSnapshot) Update(feature *plugins.FeatureXML, node *topology.Node, portId string) error {
-
 	if feature == nil {
 		return fmt.Errorf("feature XML is nil")
 	}
-
 	if len(feature.XML) == 0 {
 		return fmt.Errorf("feature XML is empty")
 	}
-
 	if len(s.XML) == 0 {
 		return fmt.Errorf("snapshot XML is empty")
 	}
 
+	// 1. Parse base snapshot document
 	doc := etree.NewDocument()
-
 	if err := doc.ReadFromBytes(s.XML); err != nil {
 		return fmt.Errorf("failed parsing snapshot XML: %w", err)
 	}
 
-	interfaces := doc.FindElement("//interfaces")
-	if interfaces == nil {
-		return fmt.Errorf("snapshot does not contain <interfaces>")
+	root := doc.Root()
+	if root == nil {
+		return fmt.Errorf("snapshot XML has no root element")
 	}
 
-	var interfaceElement *etree.Element
-
-	for _, intf := range interfaces.FindElements("interface") {
-
-		name := intf.FindElement("name")
-
-		if name == nil {
-			continue
-		}
-
-		if name.Text() == portId {
-			interfaceElement = intf
-			break
-		}
-	}
-
-	if interfaceElement == nil {
-		return fmt.Errorf(
-			"interface %q not found in snapshot",
-			portId,
-		)
-	}
-
-	// Remove existing feature subtree.
-	if existing := interfaceElement.FindElement(feature.Container); existing != nil {
-		interfaceElement.RemoveChild(existing)
-	}
-
-	// Parse new feature subtree.
+	// 2. Parse incoming feature XML
 	featureDoc := etree.NewDocument()
-
 	if err := featureDoc.ReadFromBytes(feature.XML); err != nil {
-		return fmt.Errorf(
-			"failed parsing feature XML: %w",
-			err,
-		)
+		return fmt.Errorf("failed parsing feature XML: %w", err)
 	}
 
-	if featureDoc.Root() == nil {
-		return fmt.Errorf(
-			"feature XML has no root element",
-		)
+	featureRoot := featureDoc.Root()
+	if featureRoot == nil {
+		return fmt.Errorf("feature XML has no root element")
 	}
 
-	// Add the updated feature subtree.
-	interfaceElement.AddChild(
-		featureDoc.Root().Copy(),
-	)
+	// 3. Branch based on target scope
+	if portId == "" {
+		// ─────────────────────────────────────────────────────────────
+		// CASE 1: Device/Bridge level update (e.g. <bridges>)
+		// ─────────────────────────────────────────────────────────────
+		if existing := root.FindElement(feature.Container); existing != nil {
+			root.RemoveChild(existing)
+		} else if existing := doc.FindElement("//" + feature.Container); existing != nil {
+			if parent := existing.Parent(); parent != nil {
+				parent.RemoveChild(existing)
+			}
+		}
 
-	// Store updated snapshot.
+		// Attach directly inside root (<config>)
+		root.AddChild(featureRoot.Copy())
+	} else {
+		// ─────────────────────────────────────────────────────────────
+		// CASE 2: Interface level update (e.g. <bridge-port>)
+		// ─────────────────────────────────────────────────────────────
+		interfaces := doc.FindElement("//interfaces")
+		if interfaces == nil {
+			return fmt.Errorf("snapshot does not contain <interfaces>")
+		}
+
+		var interfaceElement *etree.Element
+		for _, intf := range interfaces.FindElements("interface") {
+			name := intf.FindElement("name")
+			if name == nil {
+				continue
+			}
+			if name.Text() == portId {
+				interfaceElement = intf
+				break
+			}
+		}
+
+		if interfaceElement == nil {
+			return fmt.Errorf("interface %q not found in snapshot", portId)
+		}
+
+		// Remove existing feature subtree from this interface
+		if existing := interfaceElement.FindElement(feature.Container); existing != nil {
+			interfaceElement.RemoveChild(existing)
+		}
+
+		// Attach updated feature subtree to the interface
+		interfaceElement.AddChild(featureRoot.Copy())
+	}
+
+	// 4. Re-serialize and update snapshot state
 	doc.Indent(2)
-
 	updatedXML, err := doc.WriteToBytes()
 	if err != nil {
-		return fmt.Errorf(
-			"failed serializing updated snapshot: %w",
-			err,
-		)
+		return fmt.Errorf("failed serializing updated snapshot: %w", err)
 	}
 
 	s.XML = updatedXML
-
 	return nil
+}
+
+// PayloadXML extracts the child elements inside <config> (<interfaces>, <bridges>, etc.)
+// into a clean XML string suitable for NETCONF edit-config.
+func (s *NetconfSnapshot) PayloadXML() (string, error) {
+	if len(s.XML) == 0 {
+		return "", fmt.Errorf("snapshot XML is empty")
+	}
+
+	doc := etree.NewDocument()
+	if err := doc.ReadFromBytes(s.XML); err != nil {
+		return "", fmt.Errorf("failed parsing snapshot XML: %w", err)
+	}
+
+	root := doc.Root()
+	if root == nil {
+		return "", fmt.Errorf("snapshot has no root element")
+	}
+
+	// If root is <config>, extract all top-level child elements
+	if root.Tag == "config" {
+		childDoc := etree.NewDocument()
+		for _, child := range root.ChildElements() {
+			childDoc.AddChild(child.Copy())
+		}
+		childDoc.Indent(2)
+		return childDoc.WriteToString()
+	}
+
+	return string(s.XML), nil
 }

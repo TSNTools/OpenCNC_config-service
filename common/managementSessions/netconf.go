@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/openshift-telco/go-netconf-client/netconf"
 	"github.com/openshift-telco/go-netconf-client/netconf/message"
@@ -90,6 +91,15 @@ func GetRunningConfig(session *netconf.Session) (string, error) {
 
 // EditConfig sends an <edit-config> RPC with the XML payload to <running>.
 func EditConfig(session *netconf.Session, xmlData string) error {
+	trimmed := strings.TrimSpace(xmlData)
+	if strings.HasPrefix(trimmed, "<config") && strings.HasSuffix(trimmed, "</config>") {
+		start := strings.Index(trimmed, ">")
+		end := strings.LastIndex(trimmed, "</config>")
+		if start != -1 && end != -1 && start < end {
+			xmlData = strings.TrimSpace(trimmed[start+1 : end])
+		}
+	}
+
 	rpc := message.NewEditConfig(
 		message.DatastoreRunning,
 		message.DefaultOperationTypeMerge,
@@ -131,7 +141,13 @@ func GetWithFilter(session *netconf.Session, filter string) (string, error) {
 
 func checkNetconfOKReply(rawReply string) error {
 	var rpcReply struct {
-		OK *struct{} `xml:"ok"`
+		OK       *struct{} `xml:"ok"`
+		RPCError *struct {
+			ErrorType     string `xml:"error-type"`
+			ErrorTag      string `xml:"error-tag"`
+			ErrorSeverity string `xml:"error-severity"`
+			ErrorMessage  string `xml:"error-message"`
+		} `xml:"rpc-error"`
 	}
 
 	if err := xml.Unmarshal([]byte(rawReply), &rpcReply); err != nil {
@@ -139,7 +155,14 @@ func checkNetconfOKReply(rawReply string) error {
 	}
 
 	if rpcReply.OK == nil {
-		return fmt.Errorf("NETCONF reply does not contain <ok/>")
+		if rpcReply.RPCError != nil {
+			return fmt.Errorf("switch rejected configuration [%s]: %s (tag: %s)",
+				rpcReply.RPCError.ErrorSeverity,
+				rpcReply.RPCError.ErrorMessage,
+				rpcReply.RPCError.ErrorTag,
+			)
+		}
+		return fmt.Errorf("NETCONF reply does not contain <ok/>: %s", rawReply)
 	}
 
 	return nil

@@ -358,7 +358,8 @@ func (v *VlanNetconfPlugin_2021) buildBridgeVlanXML(payload *bridgeVlanPayload) 
 		buf.WriteString(`<bridge-vlan>`)
 
 		// Write the <vlan> names to instantiate them
-		for vid := range vlanIDs {
+		for _, vid := range vlanIDs {
+			fmt.Printf("VLAN_ID FOUND:%d\n", vid)
 			buf.WriteString(`<vlan>`)
 			buf.WriteString(fmt.Sprintf(`<vid>%d</vid>`, vid))
 			buf.WriteString(fmt.Sprintf(`<name>VLAN_%d</name>`, vid))
@@ -381,6 +382,8 @@ func (v *VlanNetconfPlugin_2021) buildBridgeVlanXML(payload *bridgeVlanPayload) 
 	buf.WriteString(`</component>`)
 	buf.WriteString(`</bridge>`)
 	buf.WriteString(`</bridges>`)
+	fmt.Println("==========================Generated NETCONF XML==========================\n")
+	fmt.Println(buf.String())
 
 	return buf.Bytes(), nil
 }

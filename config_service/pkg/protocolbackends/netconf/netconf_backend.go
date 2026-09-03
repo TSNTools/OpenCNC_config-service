@@ -459,10 +459,12 @@ func (b *NetconfBackend) pushSnapshot(snapshot *NetconfSnapshot) error {
 
 	defer session.Close()
 
-	if err := managementSessions.EditConfig(
-		session,
-		string(snapshot.XML),
-	); err != nil {
+	payload, err := snapshot.PayloadXML()
+	if err != nil {
+		return fmt.Errorf("failed extracting snapshot payload: %w", err)
+	}
+
+	if err := managementSessions.EditConfig(session, payload); err != nil {
 		return fmt.Errorf("failed pushing snapshot: %w", err)
 	}
 
@@ -508,6 +510,7 @@ func stripRPCReply(xml string) string {
 
 	// Keep everything inside <data> and wrap it in <config>
 	return "<config>" + xml[start+1:end] + "</config>"
+	//return xml[start+1 : end]
 }
 
 // //////////////////

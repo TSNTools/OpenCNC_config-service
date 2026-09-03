@@ -1,0 +1,59 @@
+{
+  "configuration": {
+    "config_id": "test-vlan-2",
+    "node_configs": [
+      {
+        "node_id": "SWITCH",
+        "bridge": {
+          "vlan_config": {
+            "vlan_registration_entries": [
+              {
+                "database_id": 1,
+                "vlan_ids": [2],
+                "entry_type": "VLAN_REG_ENTRY_TYPE_STATIC",
+                "port_maps": [
+                  {
+                    "port_id": "PORT_0",
+                    "registrar_admin_control": "REGISTRAR_ADMIN_CONTROL_NORMAL",
+                    "vlan_transmitted": "VLAN_TRANSMITTED_TAGGED"
+                  },
+                  {
+                    "port_id": "PORT_1",
+                    "registrar_admin_control": "REGISTRAR_ADMIN_CONTROL_NORMAL",
+                    "vlan_transmitted": "VLAN_TRANSMITTED_TAGGED"
+                  }
+                ]
+              }
+            ],
+            "vid_to_fid_mappings": [
+              {
+                "vid": 2,
+                "fid": 2
+              }
+            ]
+          }
+        },
+        "port_configs": [
+          {
+            "port_id": "PORT_0",
+            "vlan_memberships": [
+              {
+                "vlan_id": 2,
+                "tagged": true
+              }
+            ]
+          },
+          {
+            "port_id": "PORT_1",
+            "vlan_memberships": [
+              {
+                "vlan_id": 2,
+                "tagged": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
